@@ -1,83 +1,171 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GradeCast</title>
-  <!-- 引入所需的第三方库 (使用CDN) -->
+  <title>GradeCast 教育评估平台</title>
+  <!-- 引入Tailwind CSS CDN（开发模式）:contentReference[oaicite:17]{index=17} -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <!-- 可选：Tailwind 自定义配置 -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',  /* 支持根据类名切换深色模式 */
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#3b82f6', /* 主色调蓝色 (Tailwind blue-500) */
+          }
+        }
+      }
+    }
+  </script>
+  <!-- 引入第三方库 -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.6.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
-  <script src="https://cdn.plot.ly/plotly-2.20.0.min.js"></script>
-  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <!-- 引入多语言配置和主脚本 -->
+  <script src="languages.js"></script>
+  <script src="charts.js"></script>
+  <script src="app.js"></script>
+  <style>
+    /* 自定义样式（如有需要，可集中在styles.css引入） */
+    /* 使progress条平滑过渡宽度变化 */
+    .transition-width { transition: width 0.2s ease-in-out; }
+  </style>
 </head>
-<body>
-
-  <h1>GradeCast (ANN for Educational Measurement)</h1>
-
-  <section id="data-input" style="margin-bottom:20px;">
-    <h2>1. 上传训练数据 (CSV)</h2>
-    <input type="file" id="train-file-input" accept=".csv" />
-    <p>请上传包含学生历史作答记录的 CSV 文件。</p>
-
-    <h3>模型参数设置</h3>
-    <label>构念 (Construct) 列名: <input type="text" id="construct-col" value="Construct" /></label><br/>
-    <label>题目类型 (Item Format) 列名: <input type="text" id="format-col" value="ItemFormat" /></label><br/>
-    <label>得分/表现 (目标) 列名: <input type="text" id="score-col" value="Score" /></label><br/>
-
-    <label>隐藏层神经元数量: <input type="number" id="hidden-neurons" value="10" min="1" /></label><br/>
-    <label>Epoch 数: <input type="number" id="epoch-count" value="100" min="1" /></label><br/>
-    <label>激活函数: 
-      <select id="activation-fn">
-        <option value="relu" selected>ReLU</option>
-        <option value="sigmoid">Sigmoid</option>
-        <option value="tanh">Tanh</option>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+  <!-- 页头区域：标题和语言切换 -->
+  <header class="flex items-center justify-between px-6 py-4 bg-gray-800">
+    <h1 class="text-xl font-bold" data-i18n="appTitle">GradeCast 教育评估平台</h1>
+    <!-- 语言选择器 -->
+    <div>
+      <select id="langSelect" class="bg-gray-700 text-gray-100 border border-gray-600 py-1 px-2 rounded"
+        title="Select language">
+        <option value="en">English</option>
+        <option value="zh-CN">简体中文</option>
+        <option value="zh-TW">繁體中文</option>
       </select>
-    </label><br/>
-    
-    <h3>验证方式</h3>
-    <label><input type="radio" name="validation-method" value="holdout" checked/> 使用训练/测试拆分 </label>
-    <label><input type="radio" name="validation-method" value="loocv" /> 使用留一交叉验证 (LOOCV)</label><br/>
-    <div id="holdout-config" style="margin-left:20px;">
-      <label>训练集比例: 
-        <input type="number" id="train-ratio" value="80" min="50" max="90" />%
-      </label>
     </div>
-    
-    <button id="train-button">开始训练模型</button>
-  </section>
+  </header>
 
-  <!-- 模型训练结果显示区域 -->
-  <section id="training-results" style="display:none;">
-    <h2>2. 模型训练结果</h2>
-    <div id="metrics-output">
-
+  <!-- 主配置区域 -->
+  <main class="flex-1 overflow-auto p-6">
+    <!-- 参数配置部分：模型特征配置 + 模型结构配置 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      <!-- 模型特征配置 -->
+      <section class="p-4 bg-gray-800 rounded-md">
+        <h2 class="text-lg font-semibold mb-3" data-i18n="featureConfigTitle">模型特征配置</h2>
+        <!-- 特征输入容器 -->
+        <div id="featureList">
+          <!-- 初始特征行模板 -->
+          <div class="mb-2 flex items-center">
+            <input type="text" class="flex-1 bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1 mr-2"
+                   placeholder="Feature name" data-i18n="featurePlaceholder"
+                   title="输入特征列名称" />
+            <!-- 删除特征按钮 (初始只有一个特征时隐藏) -->
+            <button type="button" class="text-gray-400 hover:text-red-500" title="Remove feature"
+                    style="display: none;">×</button>
+          </div>
+        </div>
+        <!-- 添加特征按钮 -->
+        <button id="addFeatureBtn" type="button"
+                class="mt-2 bg-primary hover:bg-blue-700 text-white text-sm font-medium py-1 px-3 rounded">
+          + <span data-i18n="addFeature">添加特征</span>
+        </button>
+      </section>
+      <!-- 模型结构配置 -->
+      <section class="p-4 bg-gray-800 rounded-md">
+        <h2 class="text-lg font-semibold mb-3" data-i18n="structureConfigTitle">模型结构配置</h2>
+        <!-- 隐藏层神经元 -->
+        <div class="mb-4">
+          <label class="block text-gray-300 text-sm mb-1" data-i18n="hiddenNeurons">隐藏层神经元</label>
+          <input id="neuronsInput" type="number" min="1" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1"
+                 value="16" />
+        </div>
+        <!-- 训练轮数 -->
+        <div class="mb-4">
+          <label class="block text-gray-300 text-sm mb-1" data-i18n="epochs">训练轮数</label>
+          <input id="epochsInput" type="number" min="1" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1"
+                 value="100" />
+        </div>
+        <!-- 批量大小 -->
+        <div class="mb-4">
+          <label class="block text-gray-300 text-sm mb-1" data-i18n="batchSize">批量大小</label>
+          <input id="batchSizeInput" type="number" min="1" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1"
+                 value="32" />
+        </div>
+        <!-- 学习率 -->
+        <div class="mb-4">
+          <label class="block text-gray-300 text-sm mb-1" data-i18n="learningRate">学习率</label>
+          <input id="learningRateInput" type="number" step="0.0001" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1"
+                 value="0.001" />
+        </div>
+        <!-- 激活函数 -->
+        <div class="mb-4">
+          <label class="block text-gray-300 text-sm mb-1" data-i18n="activationFunc">激活函数</label>
+          <select id="activationSelect" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1">
+            <option value="relu" data-i18n="reluOption">ReLU（线性整流）</option>
+            <option value="sigmoid" data-i18n="sigmoidOption">Sigmoid（西格莫伊德）</option>
+            <option value="tanh" data-i18n="tanhOption">Tanh（双曲正切）</option>
+          </select>
+        </div>
+      </section>
     </div>
-    <div id="charts-output">
 
-      <div id="residual-chart" style="width:600px;height:400px;"></div>
-      <div id="rmse-student-chart" style="width:600px;height:400px;"></div>
-      <div id="rmse-format-chart" style="width:600px;height:400px;"></div>
-      <div id="bias-format-chart" style="width:600px;height:400px;"></div>
+    <!-- 验证配置部分 -->
+    <section class="mb-6">
+      <h2 class="text-lg font-semibold mb-3" data-i18n="validationConfigTitle">验证方式配置</h2>
+      <!-- 验证配置容器 -->
+      <div id="validationList" class="flex flex-wrap gap-4">
+        <!-- 初始验证配置框模板 -->
+        <div class="relative p-4 bg-gray-800 border border-gray-600 rounded-md min-w-[250px]">
+          <!-- 删除验证配置按钮（初始只有一个时隐藏） -->
+          <button type="button" class="absolute top-2 right-2 text-gray-400 hover:text-red-500"
+                  title="Remove validation" style="display: none;">×</button>
+          <!-- 验证方法选择 -->
+          <div class="mb-3">
+            <label class="block text-gray-300 text-sm mb-1" data-i18n="validationMethod">验证方法</label>
+            <select class="methodSelect w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1">
+              <option value="holdout" data-i18n="holdoutOption">拆分验证 (Holdout)</option>
+              <option value="loocv" data-i18n="loocvOption">留一验证 (LOOCV)</option>
+            </select>
+          </div>
+          <!-- 训练集比例 -->
+          <div>
+            <label class="block text-gray-300 text-sm mb-1" data-i18n="trainRatio">训练比例 (%)</label>
+            <input type="number" class="ratioInput w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1"
+                   min="1" max="99" value="80" />
+          </div>
+        </div>
+      </div>
+      <!-- 添加验证方案按钮 -->
+      <button id="addValidationBtn" type="button"
+              class="mt-3 bg-primary hover:bg-blue-700 text-white text-sm font-medium py-1 px-3 rounded">
+        + <span data-i18n="addValidation">添加验证方案</span>
+      </button>
+    </section>
+
+    <!-- 开始训练按钮 -->
+    <div class="mb-6">
+      <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded"
+              data-i18n="startTraining">开始训练</button>
     </div>
-  </section>
 
-  <section id="prediction-section" style="display:none; margin-top:20px;">
-    <h2>3. 上传新数据进行预测</h2>
-    <input type="file" id="predict-file-input" accept=".csv" />
-    <p>上传包含要预测的学生-题目记录的CSV（无需实际成绩）。文件格式需与训练数据类似，包含学生、题目属性等列。</p>
-    <button id="predict-button">预测新题表现</button>
-
-    <div id="prediction-results" style="display:none;">
-      <h3>预测结果指标</h3>
-      <div id="prediction-metrics"></div>
-      <h3>Kidmap 热力图 (学生 vs 题目预测表现)</h3>
-      <div id="kidmap-chart" style="width:700px;height:500px;"></div>
-      <h3>Wright Map (题目参数图)</h3>
-      <div id="wright-chart" style="width:600px;height:400px;"></div>
+    <!-- 进度指示区域 -->
+    <div id="progressSection" class="mb-6" style="display: none;">
+      <div class="text-sm mb-1" id="progressText">...</div>
+      <div class="w-full bg-gray-700 rounded h-2">
+        <div id="progressBar" class="h-2 bg-green-500 rounded transition-width" style="width: 0%;"></div>
+      </div>
     </div>
-  </section>
 
-  <script src="js/app.js"></script>
-  <script src="js/charts.js"></script>
+    <!-- 结果展示区域 -->
+    <section>
+      <h2 class="text-lg font-semibold mb-4" data-i18n="resultsTitle">训练结果</h2>
+      <div id="resultsContainer" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <!-- 结果卡片会由JS动态插入 -->
+      </div>
+    </section>
+  </main>
 </body>
 </html>
