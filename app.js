@@ -299,3 +299,95 @@ function displayMetrics(metrics) {
   `;
   trainingResultsSection.style.display = "block";  // 确保结果区可见
 }
+
+const predictFileInput = document.getElementById('predict-file-input');
+const predictButton = document.getElementById('predict-button');
+const predictionSection = document.getElementById('prediction-section');
+const predictionResultsDiv = document.getElementById('prediction-results');
+const predictionMetricsDiv = document.getElementById('prediction-metrics');
+
+predictButton.addEventListener('click', () => {
+  const file = predictFileInput.files[0];
+  if (!file) {
+    alert("请选择要预测的新数据CSV文件！");
+    return;
+  }
+  if (!window.trainedModel) {
+    alert("请先训练模型再进行预测！");
+    return;
+  }
+  // 解析预测数据CSV
+  parseCSVFile(file, (dataRows) => {
+    if (dataRows.length === 0) {
+      alert("预测数据CSV为空。");
+      return;
+    }
+    // 提取并转换特征（应与训练时相同处理流程）
+    const X_new = [];
+    const studentList = [];
+    const itemList = [];
+    for (const row of dataRows) {
+      // 这里假定预测CSV包含 Student 和 Item 列，以及Construct, ItemFormat等
+      const constructVal = row[document.getElementById('construct-col').value];
+      const formatVal = row[document.getElementById('format-col').value];
+      // 若模型独热向量需要固定大小，我们应使用训练时的constructIndexMap和formatIndexMap
+      let vec = new Array(/* same length as training inputDim */).fill(0);
+      if (constructIndexMap[constructVal] !== undefined) {
+        vec[constructIndexMap[constructVal]] = 1;
+      }
+      if (formatIndexMap[formatVal] !== undefined) {
+        const offset = Object.keys(constructIndexMap).length;
+        vec[offset + formatIndexMap[formatVal]] = 1;
+      }
+      X_new.push(vec);
+      studentList.push(row['StudentID'] || row['Student'] || `Student${rowIndex}`);
+      itemList.push(row['ItemID'] || row['Item'] || `Item${rowIndex}`);
+      // 注意：以上获取Student和Item字段名需要根据CSV调整，这里做了简单假设
+    }
+    // 转为tensor并预测
+    const X_new_tensor = tf.tensor2d(X_new);
+    const predsTensor = window.trainedModel.predict(X_new_tensor);
+    const predsArray = Array.from(predsTensor.dataSync());
+    tf.dispose([X_new_tensor, predsTensor]);  // 释放张量
+    // 整理Kidmap矩阵数据: 假定CSV中每行是一个student-item组合
+    // 首先获取唯一的学生列表和题目列表
+    const uniqueStudents = [...new Set(studentList)];
+    const uniqueItems = [...new Set(itemList)];
+    // 初始化矩阵
+    const matrix = Array.from({ length: uniqueStudents.length }, () => 
+                   new Array(uniqueItems.length).fill(null));
+    // 填入预测值
+    dataRows.forEach((row, idx) => {
+      const stu = studentList[idx];
+      const it = itemList[idx];
+      const i = uniqueStudents.indexOf(stu);
+      const j = uniqueItems.indexOf(it);
+      matrix[i][j] = predsArray[idx];
+    });
+    // 计算题目平均分 & 学生平均分
+    const itemDifficulty = {};
+    uniqueItems.forEach((item, j) => {
+      let sum = 0, count = 0;
+      matrix.forEach((row) => {
+        if (row[j] != null) { sum += row[j]; count += 1; }
+      });
+      itemDifficulty[item] = (count > 0 ? sum/count : 0);
+    });
+    const studentAbility = {};
+    uniqueStudents.forEach((stu, i) => {
+      let sum = 0, count = 0;
+      matrix[i].forEach((val) => {
+        if (val != null) { sum += val; count += 1; }
+      });
+      studentAbility[stu] = (count > 0 ? sum/count : 0);
+    });
+    // 输出简单汇总指标（如平均预测得分）
+    const overallAvg = predsArray.reduce((a,b)=>a+b,0) / predsArray.length;
+    predictionMetricsDiv.innerHTML = `<p>平均预测得分: ${overallAvg.toFixed(2)}</p>`;
+    predictionResultsDiv.style.display = "block";
+    // 绘制Kidmap和Wright Map
+    plotKidmap(matrix, uniqueStudents, uniqueItems);
+    plotWrightMap(itemDifficulty, studentAbility);
+  });
+});
+
