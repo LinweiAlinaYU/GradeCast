@@ -1,16 +1,4 @@
 /* styles.css */
-/* 进度条动画平滑，由app.js中添加的transition-width类控制 */
-.transition-width {
-  transition: width 0.2s ease-in-out;
-}
-/* 隐藏滚动条（如需要使结果区域的滚动条在Webkit下隐藏） */
-.results-container::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-module.exports = {
-  darkMode: 'class',
-  content: ['./index.html', './app.js'],
-  theme: { extend: { colors: { primary: '#3b82f6' } } },
-  plugins: [require('@tailwindcss/forms')]
-};
+.transition-width { transition: width .25s ease; }
+.absClose { position:absolute; top:6px; right:8px; }
+table th, table td { border-bottom: 1px solid rgba(255,255,255,.05); }
