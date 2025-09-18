@@ -1,393 +1,532 @@
+/***** app.js *****/
+// 获取必要的页面元素
+const featureList = document.getElementById('featureList');
+const addFeatureBtn = document.getElementById('addFeatureBtn');
+const validationList = document.getElementById('validationList');
+const addValidationBtn = document.getElementById('addValidationBtn');
+const startBtn = document.getElementById('startBtn');
+const progressSection = document.getElementById('progressSection');
+const progressText = document.getElementById('progressText');
+const progressBar = document.getElementById('progressBar');
+const langSelect = document.getElementById('langSelect');
+const resultsContainer = document.getElementById('resultsContainer');
 
-const trainFileInput = document.getElementById('train-file-input');
-const trainButton = document.getElementById('train-button');
-const metricsOutput = document.getElementById('metrics-output');
-const chartsOutput = document.getElementById('charts-output');
-const trainingResultsSection = document.getElementById('training-results');
+// 模型结构配置输入元素
+const neuronsInput = document.getElementById('neuronsInput');
+const epochsInput = document.getElementById('epochsInput');
+const batchSizeInput = document.getElementById('batchSizeInput');
+const learningRateInput = document.getElementById('learningRateInput');
+const activationSelect = document.getElementById('activationSelect');
 
-let trainData = [], testData = [];
+// 当前界面语言，默认与index.html lang属性一致
+let currentLang = document.documentElement.lang || 'zh-CN';
 
-function parseCSVFile(file, onComplete) {
-  Papa.parse(file, {
-    header: true,      
-    dynamicTyping: true,  /
-    complete: function(results) {
-      if (results.errors.length) {
-        console.error("CSV解析错误: ", results.errors);
-        alert("CSV文件解析出错，请检查文件格式。");
-      } else {
-        onComplete(results.data);
-      }
+// 初始化翻译界面文本
+translatePage();
+
+// 绑定语言切换事件:contentReference[oaicite:18]{index=18}
+langSelect.value = currentLang;
+langSelect.addEventListener('change', () => {
+  const newLang = langSelect.value;
+  currentLang = newLang;
+  translatePage();
+});
+
+// 工具函数：根据当前语言翻译页面所有 data-i18n 元素
+function translatePage() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (translations[currentLang] && translations[currentLang][key]) {
+      // 设置文本
+      el.textContent = translations[currentLang][key];
+    }
+  });
+  // 特殊处理：需要翻译的 <option> 元素内容
+  document.querySelectorAll('option[data-i18n]').forEach(opt => {
+    const key = opt.getAttribute('data-i18n');
+    if (translations[currentLang] && translations[currentLang][key]) {
+      opt.textContent = translations[currentLang][key];
     }
   });
 }
 
-trainButton.addEventListener('click', () => {
-  const file = trainFileInput.files[0];
-  if (!file) {
-    alert("请先选择训练数据CSV文件！");
+// 模板元素：初始特征行 和 初始验证配置框，用于克隆
+const featureItemTemplate = featureList.firstElementChild.cloneNode(true);
+const validationItemTemplate = validationList.firstElementChild.cloneNode(true);
+
+// 添加特征行
+addFeatureBtn.addEventListener('click', () => {
+  const newFeatureItem = featureItemTemplate.cloneNode(true);
+  // 显示删除按钮并绑定删除事件
+  const removeBtn = newFeatureItem.querySelector('button');
+  removeBtn.style.display = 'inline'; // 新增的特征行可删除
+  removeBtn.addEventListener('click', () => {
+    featureList.removeChild(newFeatureItem);
+    updateFeatureRemoveButtons();
+  });
+  // 清空输入框并翻译占位符
+  const input = newFeatureItem.querySelector('input');
+  input.value = '';
+  // 将新元素附加到列表并更新多语言
+  featureList.appendChild(newFeatureItem);
+  translatePage();
+  updateFeatureRemoveButtons();
+});
+
+// 更新特征行删除按钮可见性
+function updateFeatureRemoveButtons() {
+  const featureItems = featureList.querySelectorAll('div');
+  featureItems.forEach((item, idx) => {
+    const btn = item.querySelector('button');
+    if (btn) {
+      btn.style.display = (featureItems.length > 1) ? 'inline' : 'none';
+    }
+  });
+}
+
+// 添加验证配置框
+addValidationBtn.addEventListener('click', () => {
+  const newValItem = validationItemTemplate.cloneNode(true);
+  // 处理删除按钮
+  const removeBtn = newValItem.querySelector('button');
+  removeBtn.style.display = 'inline';
+  removeBtn.addEventListener('click', () => {
+    validationList.removeChild(newValItem);
+    updateValidationRemoveButtons();
+  });
+  // 处理验证方法选择变化事件
+  const methodSelect = newValItem.querySelector('.methodSelect');
+  const ratioInput = newValItem.querySelector('.ratioInput');
+  methodSelect.addEventListener('change', () => {
+    if (methodSelect.value === 'loocv') {
+      ratioInput.disabled = true;
+      ratioInput.classList.add('opacity-50'); // 视觉置灰
+    } else {
+      ratioInput.disabled = false;
+      ratioInput.classList.remove('opacity-50');
+    }
+  });
+  // 默认根据当前选项设置禁用状态
+  if (methodSelect.value === 'loocv') {
+    newValItem.querySelector('.ratioInput').disabled = true;
+    newValItem.querySelector('.ratioInput').classList.add('opacity-50');
+  }
+  // 添加新配置框并翻译其中文本
+  validationList.appendChild(newValItem);
+  translatePage();
+  updateValidationRemoveButtons();
+});
+
+// 更新验证配置删除按钮可见性
+function updateValidationRemoveButtons() {
+  const valItems = validationList.querySelectorAll('div.relative');
+  valItems.forEach(item => {
+    const btn = item.querySelector('button');
+    if (btn) {
+      btn.style.display = (valItems.length > 1) ? 'inline' : 'none';
+    }
+  });
+}
+
+// 初始化时，为默认的验证选择绑定事件（初始模板框）
+const initialMethodSelect = validationList.querySelector('.methodSelect');
+const initialRatioInput = validationList.querySelector('.ratioInput');
+initialMethodSelect.addEventListener('change', () => {
+  if (initialMethodSelect.value === 'loocv') {
+    initialRatioInput.disabled = true;
+    initialRatioInput.classList.add('opacity-50');
+  } else {
+    initialRatioInput.disabled = false;
+    initialRatioInput.classList.remove('opacity-50');
+  }
+});
+
+// 开始训练按钮事件
+startBtn.addEventListener('click', async () => {
+  // 获取特征名称列表
+  const featureNames = [];
+  featureList.querySelectorAll('input').forEach(input => {
+    const name = input.value.trim();
+    if (name) featureNames.push(name);
+  });
+  if (featureNames.length === 0) {
+    alert(translations[currentLang]['noFeatureAlert'] || 'Please add at least one feature.');
+    return;
+  }
+  // 获取验证方案配置列表
+  const configs = [];
+  validationList.querySelectorAll('div.relative').forEach(item => {
+    const method = item.querySelector('.methodSelect').value;
+    let trainRatio = 0.8;
+    if (method === 'holdout') {
+      const ratioVal = parseInt(item.querySelector('.ratioInput').value, 10);
+      trainRatio = isNaN(ratioVal) ? 0.8 : Math.max(1, Math.min(99, ratioVal)) / 100;
+    }
+    configs.push({ method, trainRatio });
+  });
+  if (configs.length === 0) {
+    // 理论上不会触发，因为至少有一个默认配置
+    alert(translations[currentLang]['noValidationAlert'] || 'Please add at least one validation method.');
     return;
   }
 
-  parseCSVFile(file, (dataRows) => {
-    if (dataRows.length === 0) {
-      alert("CSV文件内容为空或无法解析数据。");
-      return;
-    }
-
-    const constructCol = document.getElementById('construct-col').value;
-    const formatCol = document.getElementById('format-col').value;
-    const scoreCol = document.getElementById('score-col').value;
-
-    let X = [], y = [];
-    for (const row of dataRows) {
-      if (row[scoreCol] === undefined || row[scoreCol] === null) continue;
-      let features = [];
-      if (row[constructCol] !== undefined) {
-        features.push(row[constructCol]);
-      }
-      if (row[formatCol] !== undefined) {
-        features.push(row[formatCol]);
-      }
-      
-      X.push(features);
-      y.push(row[scoreCol]);
-    }
-    prepareDataset(X, y);
-  });
-});
-
-function prepareDataset(X, y) {
-  const constructSet = new Set();
-  const formatSet = new Set();
-  X.forEach(features => {
-    if (features.length >= 1) constructSet.add(features[0]);
-    if (features.length >= 2) formatSet.add(features[1]);
-  });
-  const constructValues = Array.from(constructSet);
-  const formatValues = Array.from(formatSet);
-  // 建立类别取值到索引的映射（用于独热编码或数值编码）
-  const constructIndexMap = {};
-  constructValues.forEach((val, idx) => { constructIndexMap[val] = idx; });
-  const formatIndexMap = {};
-  formatValues.forEach((val, idx) => { formatIndexMap[val] = idx; });
-
-  let X_processed = [];
-  for (const feat of X) {
-    let vec = new Array(constructValues.length + formatValues.length).fill(0);
-    if (feat[0] !== undefined && constructIndexMap[feat[0]] !== undefined) {
-      vec[constructIndexMap[feat[0]]] = 1;
-    }
-    if (feat[1] !== undefined && formatIndexMap[feat[1]] !== undefined) {
-      let offset = constructValues.length;
-      vec[offset + formatIndexMap[feat[1]]] = 1;
-    }
-    X_processed.push(vec);
+  // 读取上传的CSV文件
+  if (!uploadedData) {
+    alert(translations[currentLang]['noFileAlert'] || 'Please upload a data file first.');
+    return;
+  }
+  const data = uploadedData; // uploadedData在文件上传处理后保存
+  const headers = uploadedHeaders; // 列名数组
+  // 确定目标列（假设为最后一列）
+  const targetName = headers[headers.length - 1];
+  if (featureNames.includes(targetName)) {
+    // 如用户误将目标列当做特征
+    console.warn('Target column is included in features. Removing it from features.');
+    featureNames.splice(featureNames.indexOf(targetName), 1);
   }
 
-  const valMethod = document.querySelector('input[name="validation-method"]:checked').value;
-  if (valMethod === 'holdout') {
-    const trainRatio = parseInt(document.getElementById('train-ratio').value) / 100.0;
-    const totalCount = X_processed.length;
-    const trainCount = Math.floor(totalCount * trainRatio);
-    const indices = Array.from(X_processed.keys());
-    tf.util.shuffle(indices); 
-    trainData = [], testData = [];
-    for (let i = 0; i < totalCount; i++) {
-      const idx = indices[i];
-      const dataPoint = { X: X_processed[idx], y: y[idx], student: null, format: null };
-      if (i < trainCount) {
-        trainData.push(dataPoint);
-      } else {
-        testData.push(dataPoint);
+  // 准备特征->类别映射，用于独热编码
+  const categoryMaps = {};
+  featureNames.forEach(fname => {
+    categoryMaps[fname] = [];
+  });
+  data.forEach(row => {
+    featureNames.forEach(fname => {
+      const val = row[fname];
+      if (!categoryMaps[fname].includes(val)) {
+        categoryMaps[fname].push(val);
+      }
+    });
+  });
+  // 计算总输入维度
+  let inputDim = 0;
+  for (let fname of featureNames) {
+    inputDim += categoryMaps[fname].length;
+  }
+
+  // 清空之前的结果展示
+  resultsContainer.innerHTML = '';
+
+  // 禁用训练按钮避免重复点击
+  startBtn.disabled = true;
+  startBtn.classList.add('opacity-50');
+  // 遍历每个验证配置，依次训练并展示结果
+  for (let i = 0; i < configs.length; i++) {
+    const { method, trainRatio } = configs[i];
+    // 更新进度文本
+    progressSection.style.display = 'block';
+    progressText.textContent = translations[currentLang]['progressTraining'] 
+      ? translations[currentLang]['progressTraining']
+          .replace('{current}', i+1).replace('{total}', configs.length)
+          .replace('{method}', translations[currentLang][method === 'holdout' ? 'valMethodHoldout' : 'valMethodLoocv'] || method)
+      : `Training (Run ${i+1}/${configs.length})...`;
+    progressBar.style.width = '0%';
+
+    // 准备训练和测试数据集
+    let trainData = [], testData = [];
+    if (method === 'holdout') {
+      // Shuffle data
+      const shuffled = data.slice();
+      shuffled.sort(() => Math.random() - 0.5);
+      const trainCount = Math.floor(shuffled.length * trainRatio);
+      trainData = shuffled.slice(0, trainCount);
+      testData = shuffled.slice(trainCount);
+    } else if (method === 'loocv') {
+      trainData = data; // LOOCV整体特殊处理
+    }
+
+    // 转换训练集为张量
+    const { X: trainXArr, Y: trainYArr } = prepareXY(trainData, featureNames, targetName, categoryMaps, inputDim);
+    let trainX, trainY;
+    if (trainXArr.length > 0) {
+      trainX = tf.tensor2d(trainXArr, [trainXArr.length, inputDim]);
+      trainY = tf.tensor2d(trainYArr, [trainYArr.length, 1]);
+    } else {
+      console.error('Training data is empty for config', i);
+      continue;
+    }
+
+    let testXArr = [], testYArr = [], actualTest = [], predTest = [];
+    let historyLoss = [], historyValLoss = [];
+
+    if (method === 'holdout') {
+      // 准备测试集张量
+      const preparedTest = prepareXY(testData, featureNames, targetName, categoryMaps, inputDim);
+      testXArr = preparedTest.X;
+      testYArr = preparedTest.Y;
+      if (testXArr.length > 0) {
+        var testX = tf.tensor2d(testXArr, [testXArr.length, inputDim]);
+        var testY = tf.tensor2d(testYArr, [testYArr.length, 1]);
       }
     }
-    console.log(`使用Holdout拆分: 训练集 ${trainData.length} 条, 测试集 ${testData.length} 条`);
-    startTrainingModel();  
-  } else if (valMethod === 'loocv') {
-    trainData = X_processed;
-    testData = null;
-    console.log("使用留一交叉验证进行模型评估");
-    startTrainingModel();
-  }
-}
 
-/** 构建TensorFlow.js顺序模型 (ANN) */
-function buildModel(inputDim, hiddenUnits, activationFn) {
-  const model = tf.sequential();
-  // 输入层->隐藏层
-  model.add(tf.layers.dense({
-    inputShape: [inputDim],
-    units: hiddenUnits,
-    activation: activationFn  // 例如 'relu' 或 'sigmoid'
-  }));
-  // 隐藏层->输出层
-  model.add(tf.layers.dense({
-    units: 1,
-    activation: 'linear'  // 线性输出，用于回归。如果预测分类可改为sigmoid等
-  }));
-  // 配置模型的优化器和损失函数
-  model.compile({
-    optimizer: tf.train.adam(),               // Adam优化器
-    loss: tf.losses.meanSquaredError,         // 均方误差损失:contentReference[oaicite:12]{index=12}
-    metrics: [tf.metrics.meanAbsoluteError]   // 指标: MAE（可根据需要添加）
-  });
-  return model;
-}
+    // 构建模型
+    const model = tf.sequential();
+    model.add(tf.layers.dense({
+      units: parseInt(neuronsInput.value) || 16,
+      activation: activationSelect.value || 'relu',
+      inputShape: [inputDim]
+    }));
+    // 输出层，回归问题输出1个值
+    model.add(tf.layers.dense({ units: 1, activation: 'linear' }));
+    // 编译模型
+    const lr = parseFloat(learningRateInput.value) || 0.001;
+    const optimizer = tf.train.adam(lr);
+    model.compile({
+      optimizer: optimizer,
+      loss: 'meanSquaredError',
+      metrics: ['mse']  // 我们可以跟踪MSE，但R2等需手动计算
+    });
 
-/** 开始训练模型 (根据选择的验证方案执行不同流程) */
-async function startTrainingModel() {
-  // 从参数表单获取设置
-  const hiddenNeurons = parseInt(document.getElementById('hidden-neurons').value);
-  const epochCount = parseInt(document.getElementById('epoch-count').value);
-  const activationFn = document.getElementById('activation-fn').value;
-  const valMethod = document.querySelector('input[name="validation-method"]:checked').value;
-
-  // 准备训练数据张量 (对于holdout，我们有trainData数组; 对于loocv，将每轮动态生成)
-  let X_train, y_train, X_test, y_test;
-  if (valMethod === 'holdout') {
-    // 提取训练集特征和标签，转换为tf.tensor2d
-    X_train = tf.tensor2d(trainData.map(d => d.X));
-    y_train = tf.tensor2d(trainData.map(d => d.y), [trainData.length, 1]);
-    X_test = tf.tensor2d(testData.map(d => d.X));
-    y_test = tf.tensor2d(testData.map(d => d.y), [testData.length, 1]);
-  }
-
-  // 构建模型
-  const inputDim = trainData[0].X.length || trainData[0].length; // 特征维度
-  console.log(`构建模型: 输入维度=${inputDim}, 隐藏层神经元=${hiddenNeurons}, 激活=${activationFn}`);
-  let model = buildModel(inputDim, hiddenNeurons, activationFn);
-  // 输出模型摘要（可选，可用tfjs-vis或console查看）
-  model.summary();
-
-  if (valMethod === 'holdout') {
-    // **Holdout 验证**: 直接使用划分好的训练集训练，测试集评估
-    try {
-      // 训练模型
-      await model.fit(X_train, y_train, {
-        epochs: epochCount,
-        batchSize: 32,
-        shuffle: true,
-        validationData: [X_test, y_test],
+    if (method === 'holdout') {
+      // 训练模型（带验证集）
+      const epochs = parseInt(epochsInput.value) || 100;
+      await model.fit(trainX, trainY, {
+        epochs: epochs,
+        validationData: (typeof testX !== 'undefined') ? [testX, testY] : null,
         callbacks: {
           onEpochEnd: (epoch, logs) => {
-            console.log(`Epoch ${epoch+1}/${epochCount}: loss=${logs.loss.toFixed(4)}, MAE=${logs.meanAbsoluteError.toFixed(4)}`);
-            // 可选：在界面上显示训练进度，比如进度条或当前loss
+            // 更新进度条
+            const percent = Math.floor(((epoch + 1) / epochs) * 100);
+            progressBar.style.width = percent + '%';
+            // 保存训练和验证损失用于绘图
+            historyLoss.push(logs.loss);
+            if (logs.val_loss !== undefined) historyValLoss.push(logs.val_loss);
+            // 更新文本显示当前epoch
+            progressText.textContent = translations[currentLang]['progressEpoch']
+              ? translations[currentLang]['progressEpoch']
+                  .replace('{current}', i+1).replace('{total}', configs.length)
+                  .replace('{epoch}', epoch+1).replace('{epochs}', epochs)
+              : `Run ${i+1}/${configs.length} - Epoch ${epoch+1}/${epochs}`;
           }
         }
       });
-    } catch (err) {
-      console.error("模型训练过程中出错:", err);
-      alert("模型训练失败，请检查控制台日志。");
-      return;
-    }
-    console.log("模型训练完成！");
-    // 在测试集上进行预测
-    const predsTensor = model.predict(X_test);
-    const preds = Array.from(predsTensor.dataSync());  // 将预测结果Tensor转为JS数组
-    const actuals = Array.from(y_test.dataSync());
-    // 计算各项评估指标并显示结果
-    evaluateAndDisplayResults(preds, actuals, model);
-  } else if (valMethod === 'loocv') {
-    // **留一交叉验证**: 每次留一条做测试，其余做训练，重复N次
-    const allX = trainData;  // trainData在LOOCV模式下存的是整个数据集特征二维数组
-    const allY = testData || [] ; // 这里为了通用把testData复用，在LOOCV中未用
-    const N = allX.length;
-    let sumAbsError = 0, sumAbsPctError = 0, sumSqError = 0, sumError = 0;
-    const allActuals = [], allPreds = [];
-    // LOOCV 循环
-    for (let i = 0; i < N; i++) {
-      // 切分训练和验证集: 第i条作为验证，其它作为训练
-      const X_train_loocv = tf.tensor2d(allX.filter((_, idx) => idx !== i));
-      const y_train_loocv = tf.tensor2d(y.filter((_, idx) => idx !== i), [N-1, 1]);
-      const X_val_loocv = tf.tensor2d([ allX[i] ]);  // 留出的第i条
-      const y_val_loocv = y[i];
-      // 构建并训练模型（每次需新建模型，因为每轮训练独立进行）
-      model = buildModel(inputDim, hiddenNeurons, activationFn);
-      try {
-        await model.fit(X_train_loocv, y_train_loocv, {
-          epochs: epochCount,
-          batchSize: Math.min(32, N-1),
-          shuffle: true
-          // LOOCV我们不需要专门验证集，每轮最后直接预测第i条即可
+      // 训练完成，确保进度条填满
+      progressBar.style.width = '100%';
+      // 获取预测结果
+      if (typeof testX !== 'undefined') {
+        const predYTensor = model.predict(testX);
+        predTest = Array.from(predYTensor.dataSync());
+        actualTest = testYArr.map(v => v[0]);
+        predYTensor.dispose();
+      }
+    } else if (method === 'loocv') {
+      // LOOCV: 对每个样本留一，训练模型并预测该样本
+      const totalSamples = data.length;
+      const epochs = parseInt(epochsInput.value) || 100;
+      actualTest = []; predTest = [];
+      for (let j = 0; j < data.length; j++) {
+        // 构建第j次的训练集（所有样本 except j）
+        const trainSubset = data.filter((_, idx) => idx !== j);
+        const testSample = data[j];
+        const { X: subXArr, Y: subYArr } = prepareXY(trainSubset, featureNames, targetName, categoryMaps, inputDim);
+        const subX = tf.tensor2d(subXArr, [subXArr.length, inputDim]);
+        const subY = tf.tensor2d(subYArr, [subYArr.length, 1]);
+        // 重新初始化模型参数（简单起见，每次重新创建新模型）
+        const localModel = tf.sequential();
+        localModel.add(tf.layers.dense({
+          units: parseInt(neuronsInput.value) || 16,
+          activation: activationSelect.value || 'relu',
+          inputShape: [inputDim]
+        }));
+        localModel.add(tf.layers.dense({ units: 1, activation: 'linear' }));
+        localModel.compile({
+          optimizer: tf.train.adam(parseFloat(learningRateInput.value) || 0.001),
+          loss: 'meanSquaredError'
         });
-      } catch (err) {
-        console.error(`LOOCV第${i}折训练出错:`, err);
-        return;
+        // 训练模型
+        await localModel.fit(subX, subY, { epochs: epochs, shuffle: true });
+        // 预测留出的样本
+        const testXVec = prepareOneX(testSample, featureNames, categoryMaps, inputDim);
+        const pred = localModel.predict(tf.tensor2d(testXVec, [1, inputDim]));
+        const predVal = pred.dataSync()[0];
+        // 收集预测结果
+        predTest.push(predVal);
+        actualTest.push(parseFloat(testSample[targetName]));
+        // 释放资源
+        pred.dispose();
+        subX.dispose(); subY.dispose();
+        localModel.dispose();
+        tf.disposeVariables(); // 清理模型变量
+        // 更新进度条（LOOCV整体进度）
+        const percent = Math.floor(((j + 1) / totalSamples) * 100);
+        progressBar.style.width = percent + '%';
+        progressText.textContent = translations[currentLang]['progressLOOCV']
+          ? translations[currentLang]['progressLOOCV']
+              .replace('{current}', i+1).replace('{total}', configs.length)
+              .replace('{done}', j+1).replace('{totalSamples}', totalSamples)
+          : `Run ${i+1}/${configs.length} - Processed ${j+1}/${totalSamples} samples`;
       }
-      // 用训练好的模型预测第i条
-      const predTensor = model.predict(X_val_loocv);
-      const predVal = predTensor.dataSync()[0];
-      allPreds.push(predVal);
-      allActuals.push(y_val_loocv);
-      // 累积误差用于之后计算平均指标
-      const err = predVal - y_val_loocv;
-      sumAbsError += Math.abs(err);
-      if (y_val_loocv !== 0) {
-        sumAbsPctError += Math.abs(err / y_val_loocv);
+      // LOOCV完成，相当于得到整个数据集的预测结果
+    }
+
+    // 计算性能指标
+    const metrics = calcMetrics(actualTest, predTest);
+    // 绘制结果卡片
+    const resultCard = document.createElement('div');
+    resultCard.className = 'p-4 bg-gray-800 border border-gray-600 rounded-md';
+    // 配置标题（验证方法和比例说明）
+    const title = document.createElement('h3');
+    title.className = 'font-semibold mb-2';
+    if (method === 'holdout') {
+      const trainPct = Math.round(trainRatio * 100);
+      const testPct = 100 - trainPct;
+      // 使用翻译模板拼接标题
+      if (translations[currentLang]['resultHoldout']) {
+        title.textContent = translations[currentLang]['resultHoldout']
+          .replace('{trainPct}', trainPct).replace('{testPct}', testPct);
+      } else {
+        title.textContent = `Holdout (${trainPct}% train / ${testPct}% test)`;
       }
-      sumSqError += err * err;
-      sumError += err;
-      // 清理内存中的tensor以防止内存泄露
-      tf.dispose([X_train_loocv, y_train_loocv, X_val_loocv, predTensor]);
-      model.dispose();
+    } else {
+      title.textContent = translations[currentLang]['resultLoocv'] || 'LOOCV (Leave-One-Out)';
     }
-    // 所有折验证完毕，计算平均指标
-    const MAE = sumAbsError / N;
-    const MAPE = (sumAbsPctError / N) * 100;
-    const MSE = sumSqError / N;
-    const RMSE = Math.sqrt(MSE);
-    const meanActual = allActuals.reduce((a,b) => a+b, 0) / N;
-    const SST = allActuals.reduce((sum, y) => sum + Math.pow(y - meanActual, 2), 0);
-    const R2 = 1 - (sumSqError / SST);
-    const explainedVar = 1 - ( (sumSqError/N) / (SST/N) );  // 解释方差，可与R2相同
-    const meanError = sumError / N;
-    // 显示LOOCV平均指标（此模式下模型已重新初始化多次，不保留最终模型）
-    displayMetrics({
-      MAE, MAPE, MSE, RMSE, R2, explainedVar, meanError
-    });
-    // 存储预测和实际以便后续绘图分析（LOOCV情况下allPreds与allActuals为数组）
-    plotResults(allPreds, allActuals, /* group info if needed */);
-  }
-}
-
-/** 计算指标并更新页面显示 (针对Holdout模式) */
-function evaluateAndDisplayResults(preds, actuals, model) {
-  const n = preds.length;
-  // 计算各项指标
-  let sumAbsErr = 0, sumAbsPctErr = 0, sumSqErr = 0, sumErr = 0;
-  for (let i = 0; i < n; i++) {
-    const err = preds[i] - actuals[i];
-    sumAbsErr += Math.abs(err);
-    if (actuals[i] !== 0) {
-      sumAbsPctErr += Math.abs(err / actuals[i]);
+    resultCard.appendChild(title);
+    // 指标列表
+    const list = document.createElement('ul');
+    for (let key of ['MAE', 'MSE', 'RMSE', 'R2']) {
+      const li = document.createElement('li');
+      // 指标名称多语言
+      const label = translations[currentLang][key] || key;
+      li.textContent = `${label}: ${metrics[key]}`;
+      list.appendChild(li);
     }
-    sumSqErr += err * err;
-    sumErr += err;
-  }
-  const MAE = sumAbsErr / n;
-  const MAPE = (sumAbsPctErr / n) * 100;
-  const MSE = sumSqErr / n;
-  const RMSE = Math.sqrt(MSE);
-  const meanActual = actuals.reduce((a,b) => a+b, 0) / n;
-  const SST = actuals.reduce((sum, y) => sum + Math.pow(y - meanActual, 2), 0);
-  const R2 = 1 - (sumSqErr / SST);
-  const explainedVar = 1 - ((sumSqErr/n) / (SST/n));
-  const meanError = sumErr / n;
-
-  // 将结果显示到页面
-  displayMetrics({ MAE, MAPE, MSE, RMSE, R2, explainedVar, meanError });
-
-  // 生成可视化图表
-  // 准备附加信息用于分组误差: 学生ID和题型
-  const studentIds = testData.map(d => d.student);
-  const formats = testData.map(d => d.format);
-  plotResults(preds, actuals, studentIds, formats);
-}
-
-/** 将指标数据obj显示在页面metricsOutput容器 */
-function displayMetrics(metrics) {
-  // 格式化输出
-  metricsOutput.innerHTML = `
-    <p>Mean Absolute Error (MAE): ${metrics.MAE.toFixed(3)}</p>
-    <p>Mean Absolute Percentage Error (MAPE): ${metrics.MAPE.toFixed(2)}%</p>
-    <p>Mean Squared Error (MSE): ${metrics.MSE.toFixed(3)}</p>
-    <p>Root Mean Squared Error (RMSE): ${metrics.RMSE.toFixed(3)}</p>
-    <p>R² (判定系数): ${metrics.R2.toFixed(3)}</p>
-    <p>Explained Variance (解释方差): ${metrics.explainedVar.toFixed(3)}</p>
-    <p>Mean Error (平均误差): ${metrics.meanError.toFixed(3)}</p>
-  `;
-  trainingResultsSection.style.display = "block";  // 确保结果区可见
-}
-
-const predictFileInput = document.getElementById('predict-file-input');
-const predictButton = document.getElementById('predict-button');
-const predictionSection = document.getElementById('prediction-section');
-const predictionResultsDiv = document.getElementById('prediction-results');
-const predictionMetricsDiv = document.getElementById('prediction-metrics');
-
-predictButton.addEventListener('click', () => {
-  const file = predictFileInput.files[0];
-  if (!file) {
-    alert("请选择要预测的新数据CSV文件！");
-    return;
-  }
-  if (!window.trainedModel) {
-    alert("请先训练模型再进行预测！");
-    return;
-  }
-  // 解析预测数据CSV
-  parseCSVFile(file, (dataRows) => {
-    if (dataRows.length === 0) {
-      alert("预测数据CSV为空。");
-      return;
+    resultCard.appendChild(list);
+    // 图表容器
+    if (method === 'holdout' && historyLoss.length > 0) {
+      // 损失曲线图
+      const lossCanvas = document.createElement('canvas');
+      lossCanvas.style.width = '100%';
+      lossCanvas.style.height = '300px';
+      resultCard.appendChild(lossCanvas);
+      drawLossCurve(lossCanvas, historyLoss, historyValLoss, currentLang);
     }
-    // 提取并转换特征（应与训练时相同处理流程）
-    const X_new = [];
-    const studentList = [];
-    const itemList = [];
-    for (const row of dataRows) {
-      // 这里假定预测CSV包含 Student 和 Item 列，以及Construct, ItemFormat等
-      const constructVal = row[document.getElementById('construct-col').value];
-      const formatVal = row[document.getElementById('format-col').value];
-      // 若模型独热向量需要固定大小，我们应使用训练时的constructIndexMap和formatIndexMap
-      let vec = new Array(/* same length as training inputDim */).fill(0);
-      if (constructIndexMap[constructVal] !== undefined) {
-        vec[constructIndexMap[constructVal]] = 1;
+    if (actualTest.length > 0) {
+      // 散点图
+      const scatterCanvas = document.createElement('canvas');
+      scatterCanvas.style.width = '100%';
+      scatterCanvas.style.height = '300px';
+      resultCard.appendChild(scatterCanvas);
+      drawScatterPlot(scatterCanvas, actualTest, predTest, currentLang);
+    }
+    // 将结果卡片加入页面
+    resultsContainer.appendChild(resultCard);
+    // 释放tensor资源
+    trainX.dispose(); trainY.dispose();
+    if (typeof testX !== 'undefined') { testX.dispose(); testY.dispose(); }
+    model.dispose();
+    tf.disposeVariables();
+  } // end for each config
+
+  // 训练全部完成
+  startBtn.disabled = false;
+  startBtn.classList.remove('opacity-50');
+  progressText.textContent = translations[currentLang]['progressComplete'] || 'Training complete';
+  // 可选择在几秒后隐藏进度条
+  setTimeout(() => { progressSection.style.display = 'none'; }, 2000);
+});
+
+// 文件上传处理（假定 HTML 里通过 <input type="file"> 触发，本代码监听到文件并解析）
+let uploadedData = null;
+let uploadedHeaders = null;
+document.getElementById('fileInput')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  // 重置状态
+  uploadedData = null;
+  progressSection.style.display = 'block';
+  progressText.textContent = translations[currentLang]['progressUploading'] || 'Uploading file...';
+  progressBar.style.width = '0%';
+  // 使用PapaParse解析CSV
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    step: (results, parser) => {
+      if (!uploadedData) {
+        uploadedData = [];
       }
-      if (formatIndexMap[formatVal] !== undefined) {
-        const offset = Object.keys(constructIndexMap).length;
-        vec[offset + formatIndexMap[formatVal]] = 1;
+      uploadedData.push(results.data);
+      // 更新进度（使用已处理记录数近似）
+      if (results.meta && results.meta.fields && !uploadedHeaders) {
+        uploadedHeaders = results.meta.fields;
       }
-      X_new.push(vec);
-      studentList.push(row['StudentID'] || row['Student'] || `Student${rowIndex}`);
-      itemList.push(row['ItemID'] || row['Item'] || `Item${rowIndex}`);
-      // 注意：以上获取Student和Item字段名需要根据CSV调整，这里做了简单假设
+      if (results.meta) {
+        const percent = results.meta.cursor ? Math.floor((results.meta.cursor / file.size) * 100) : 0;
+        progressBar.style.width = percent + '%';
+      }
+    },
+    complete: () => {
+      progressBar.style.width = '100%';
+      progressText.textContent = translations[currentLang]['uploadComplete'] || 'File loaded';
+      setTimeout(() => { progressSection.style.display = 'none'; }, 1000);
+      // 显示文件名
+      document.getElementById('fileNameDisplay').textContent = file.name;
+      document.getElementById('fileNameDisplay').removeAttribute('data-i18n');
+    },
+    error: (err) => {
+      console.error('Parse error:', err);
+      progressText.textContent = translations[currentLang]['uploadError'] || 'File upload error';
     }
-    // 转为tensor并预测
-    const X_new_tensor = tf.tensor2d(X_new);
-    const predsTensor = window.trainedModel.predict(X_new_tensor);
-    const predsArray = Array.from(predsTensor.dataSync());
-    tf.dispose([X_new_tensor, predsTensor]);  // 释放张量
-    // 整理Kidmap矩阵数据: 假定CSV中每行是一个student-item组合
-    // 首先获取唯一的学生列表和题目列表
-    const uniqueStudents = [...new Set(studentList)];
-    const uniqueItems = [...new Set(itemList)];
-    // 初始化矩阵
-    const matrix = Array.from({ length: uniqueStudents.length }, () => 
-                   new Array(uniqueItems.length).fill(null));
-    // 填入预测值
-    dataRows.forEach((row, idx) => {
-      const stu = studentList[idx];
-      const it = itemList[idx];
-      const i = uniqueStudents.indexOf(stu);
-      const j = uniqueItems.indexOf(it);
-      matrix[i][j] = predsArray[idx];
-    });
-    // 计算题目平均分 & 学生平均分
-    const itemDifficulty = {};
-    uniqueItems.forEach((item, j) => {
-      let sum = 0, count = 0;
-      matrix.forEach((row) => {
-        if (row[j] != null) { sum += row[j]; count += 1; }
-      });
-      itemDifficulty[item] = (count > 0 ? sum/count : 0);
-    });
-    const studentAbility = {};
-    uniqueStudents.forEach((stu, i) => {
-      let sum = 0, count = 0;
-      matrix[i].forEach((val) => {
-        if (val != null) { sum += val; count += 1; }
-      });
-      studentAbility[stu] = (count > 0 ? sum/count : 0);
-    });
-    // 输出简单汇总指标（如平均预测得分）
-    const overallAvg = predsArray.reduce((a,b)=>a+b,0) / predsArray.length;
-    predictionMetricsDiv.innerHTML = `<p>平均预测得分: ${overallAvg.toFixed(2)}</p>`;
-    predictionResultsDiv.style.display = "block";
-    // 绘制Kidmap和Wright Map
-    plotKidmap(matrix, uniqueStudents, uniqueItems);
-    plotWrightMap(itemDifficulty, studentAbility);
   });
 });
 
+// 准备数据集的辅助函数：将对象数组转换为模型输入X和目标Y数组
+function prepareXY(dataArray, featureNames, targetName, categoryMaps, inputDim) {
+  const X = [];
+  const Y = [];
+  dataArray.forEach(row => {
+    const xVec = prepareOneX(row, featureNames, categoryMaps, inputDim);
+    X.push(xVec);
+    Y.push([parseFloat(row[targetName]) || 0]);
+  });
+  return { X, Y };
+}
+
+// 将单个数据行转换为输入向量
+function prepareOneX(row, featureNames, categoryMaps, inputDim) {
+  const xVec = new Array(inputDim).fill(0);
+  let offset = 0;
+  featureNames.forEach(fname => {
+    const categories = categoryMaps[fname];
+    const val = row[fname];
+    const idx = categories.indexOf(val);
+    if (idx >= 0) {
+      xVec[offset + idx] = 1;
+    }
+    offset += categories.length;
+  });
+  return xVec;
+}
+
+// 计算回归指标
+function calcMetrics(actualArr, predArr) {
+  const n = actualArr.length;
+  let mae = 0, mse = 0;
+  let sumY = 0;
+  actualArr.forEach((y, idx) => {
+    const pred = predArr[idx];
+    const err = pred - y;
+    mae += Math.abs(err);
+    mse += err * err;
+    sumY += y;
+  });
+  mae /= n;
+  mse /= n;
+  const rmse = Math.sqrt(mse);
+  // R²计算
+  let sst = 0;
+  const meanY = sumY / n;
+  actualArr.forEach(y => { 
+    const diff = y - meanY;
+    sst += diff * diff;
+  });
+  const sse = mse * n;
+  const r2 = sst > 0 ? (1 - sse/sst) : 1;
+  // 格式化数值（保留三位小数）
+  return {
+    'MAE': mae.toFixed(3),
+    'MSE': mse.toFixed(3),
+    'RMSE': rmse.toFixed(3),
+    'R2': r2.toFixed(3)
+  };
+}
