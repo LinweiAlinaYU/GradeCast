@@ -1,3 +1,5 @@
+// charts.js
+
 /** 绘制残差分布直方图 */
 function plotResiduals(residuals) { ... }
 
@@ -83,7 +85,6 @@ function plotResiduals(residuals) {
   Plotly.newPlot('residual-chart', [trace], layout);
 }
 
-
 function plotRmseByStudent(data) {
   // data: { labels: [...学生ID], values: [...对应RMSE] }
   const trace = {
@@ -99,7 +100,6 @@ function plotRmseByStudent(data) {
   };
   Plotly.newPlot('rmse-student-chart', [trace], layout);
 }
-
 
 function plotRmseByFormat(data) {
   const trace = {
@@ -158,7 +158,6 @@ function plotKidmap(predMatrix, studentList, itemList) {
   Plotly.newPlot('kidmap-chart', data, layout);
 }
 
-
 function plotWrightMap(itemDifficulties, studentAbilities = []) {
   // itemDifficulties: { itemLabel: avgPredScore, ... }
   const items = Object.keys(itemDifficulties);
@@ -178,4 +177,3 @@ function plotWrightMap(itemDifficulties, studentAbilities = []) {
   };
   Plotly.newPlot('wright-chart', [trace], layout);
 }
-
