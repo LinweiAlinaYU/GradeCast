@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GradeCast</title>
+  <!-- 引入所需的第三方库 (使用CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.6.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.20.0.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <h1>GradeCast (ANN for Educational Measurement)</h1>
+
+  <section id="data-input" style="margin-bottom:20px;">
+    <h2>1. 上传训练数据 (CSV)</h2>
+    <input type="file" id="train-file-input" accept=".csv" />
+    <p>请上传包含学生历史作答记录的 CSV 文件。</p>
+
+    <h3>模型参数设置</h3>
+    <label>构念 (Construct) 列名: <input type="text" id="construct-col" value="Construct" /></label><br/>
+    <label>题目类型 (Item Format) 列名: <input type="text" id="format-col" value="ItemFormat" /></label><br/>
+    <label>得分/表现 (目标) 列名: <input type="text" id="score-col" value="Score" /></label><br/>
+
+    <label>隐藏层神经元数量: <input type="number" id="hidden-neurons" value="10" min="1" /></label><br/>
+    <label>Epoch 数: <input type="number" id="epoch-count" value="100" min="1" /></label><br/>
+    <label>激活函数: 
+      <select id="activation-fn">
+        <option value="relu" selected>ReLU</option>
+        <option value="sigmoid">Sigmoid</option>
+        <option value="tanh">Tanh</option>
+      </select>
+    </label><br/>
+    
+    <h3>验证方式</h3>
+    <label><input type="radio" name="validation-method" value="holdout" checked/> 使用训练/测试拆分 </label>
+    <label><input type="radio" name="validation-method" value="loocv" /> 使用留一交叉验证 (LOOCV)</label><br/>
+    <div id="holdout-config" style="margin-left:20px;">
+      <label>训练集比例: 
+        <input type="number" id="train-ratio" value="80" min="50" max="90" />%
+      </label>
+    </div>
+    
+    <button id="train-button">开始训练模型</button>
+  </section>
+
+  <!-- 模型训练结果显示区域 -->
+  <section id="training-results" style="display:none;">
+    <h2>2. 模型训练结果</h2>
+    <div id="metrics-output">
+
+    </div>
+    <div id="charts-output">
+
+      <div id="residual-chart" style="width:600px;height:400px;"></div>
+      <div id="rmse-student-chart" style="width:600px;height:400px;"></div>
+      <div id="rmse-format-chart" style="width:600px;height:400px;"></div>
+      <div id="bias-format-chart" style="width:600px;height:400px;"></div>
+    </div>
+  </section>
+
+  <section id="prediction-section" style="display:none; margin-top:20px;">
+    <h2>3. 上传新数据进行预测</h2>
+    <input type="file" id="predict-file-input" accept=".csv" />
+    <p>上传包含要预测的学生-题目记录的CSV（无需实际成绩）。文件格式需与训练数据类似，包含学生、题目属性等列。</p>
+    <button id="predict-button">预测新题表现</button>
+
+    <div id="prediction-results" style="display:none;">
+      <h3>预测结果指标</h3>
+      <div id="prediction-metrics"></div>
+      <h3>Kidmap 热力图 (学生 vs 题目预测表现)</h3>
+      <div id="kidmap-chart" style="width:700px;height:500px;"></div>
+      <h3>Wright Map (题目参数图)</h3>
+      <div id="wright-chart" style="width:600px;height:400px;"></div>
+    </div>
+  </section>
+
+  <script src="js/app.js"></script>
+  <script src="js/charts.js"></script>
+</body>
+</html>
