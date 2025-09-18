@@ -1,119 +1,43 @@
 /***** charts.js *****/
-// 绘制训练/验证损失曲线图
-function drawLossCurve(canvas, trainLosses, valLosses, lang) {
-  const ctx = canvas.getContext('2d');
-  const labels = trainLosses.map((_, i) => i + 1);  // X轴为Epoch序号
-  const datasets = [
-    {
-      label: translations[lang]['trainingLoss'] || 'Training Loss',
-      data: trainLosses,
-      borderColor: '#38bdf8',  // 蓝色
-      backgroundColor: '#38bdf8',
-      fill: false,
-      tension: 0.1
-    }
+function drawLossCurvePlotly(div, trainLoss, valLoss, lang){
+  const data = [
+    { x: trainLoss.map((_,i)=>i+1), y: trainLoss, type:'scatter', name:(translations[lang]?.trainingLoss)||'Training Loss' }
   ];
-  if (valLosses && valLosses.length > 0) {
-    datasets.push({
-      label: translations[lang]['validationLoss'] || 'Validation Loss',
-      data: valLosses,
-      borderColor: '#a78bfa',  // 紫色
-      backgroundColor: '#a78bfa',
-      fill: false,
-      tension: 0.1
-    });
+  if (valLoss && valLoss.length) {
+    data.push({ x: valLoss.map((_,i)=>i+1), y: valLoss, type:'scatter', name:(translations[lang]?.validationLoss)||'Validation Loss' });
   }
-  new Chart(ctx, {
-    type: 'line',
-    data: { labels: labels, datasets: datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: translations[lang]['epochAxis'] || 'Epoch'
-          },
-          ticks: { color: '#ccc' }
-        },
-        y: {
-          title: {
-            display: true,
-            text: translations[lang]['lossAxis'] || 'Loss'
-          },
-          ticks: { color: '#ccc' }
-        }
-      },
-      plugins: {
-        legend: {
-          labels: { color: '#ccc' }
-        }
-      }
-    }
-  });
+  Plotly.newPlot(div, data, {
+    margin:{t:30,r:10,l:40,b:35},
+    xaxis:{title:(translations[lang]?.epochAxis)||'Epoch'},
+    yaxis:{title:(translations[lang]?.lossAxis)||'Loss'}
+  }, {displaylogo:false, responsive:true});
 }
 
-// 绘制实际 vs 预测散点图
-function drawScatterPlot(canvas, actual, predicted, lang) {
-  const ctx = canvas.getContext('2d');
-  const dataPoints = actual.map((val, idx) => ({ x: val, y: predicted[idx] }));
-  // 计算对角线范围
-  const allValues = actual.concat(predicted);
-  const minVal = Math.min(...allValues);
-  const maxVal = Math.max(...allValues);
-  const linePoints = [
-    { x: minVal, y: minVal },
-    { x: maxVal, y: maxVal }
+function drawScatterPlotPlotly(div, actual, pred, lang){
+  const min = Math.min(...actual, ...pred);
+  const max = Math.max(...actual, ...pred);
+  const data = [
+    { x: actual, y: pred, mode:'markers', type:'scatter', name:(translations[lang]?.actualVsPred)||'Predicted vs Actual' },
+    { x: [min,max], y:[min,max], mode:'lines', name:(translations[lang]?.idealLine)||'Ideal (Y=X)' }
   ];
-  new Chart(ctx, {
-    type: 'scatter',
-    data: {
-      datasets: [
-        {
-          label: translations[lang]['actualVsPred'] || 'Predicted vs Actual',
-          data: dataPoints,
-          backgroundColor: '#facc15'  // 黄色点
-        },
-        {
-          label: translations[lang]['idealLine'] || 'Ideal (Y=X)',
-          data: linePoints,
-          type: 'line',
-          borderColor: '#6b7280',  // 灰色线
-          borderDash: [5,5],
-          fill: false,
-          pointRadius: 0
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: translations[lang]['actualAxis'] || 'Actual'
-          },
-          min: minVal,
-          max: maxVal,
-          ticks: { color: '#ccc' }
-        },
-        y: {
-          title: {
-            display: true,
-            text: translations[lang]['predictedAxis'] || 'Predicted'
-          },
-          min: minVal,
-          max: maxVal,
-          ticks: { color: '#ccc' }
-        }
-      },
-      plugins: {
-        legend: {
-          labels: { color: '#ccc' }
-        }
-      }
-    }
-  });
+  Plotly.newPlot(div, data, {
+    margin:{t:30,r:10,l:40,b:35},
+    xaxis:{title:(translations[lang]?.actualAxis)||'Actual'},
+    yaxis:{title:(translations[lang]?.predictedAxis)||'Predicted'}
+  }, {displaylogo:false, responsive:true});
+}
+
+function drawWrightMap(divId, thetaVals, itemVals, lang){
+  const div = (typeof divId==='string')? document.getElementById(divId): divId;
+  const data = [
+    { x: thetaVals, type:'histogram', name:'Persons', orientation:'v', opacity:0.7 },
+    { x: itemVals,  type:'histogram', name:'Items',   opacity:0.7 }
+  ];
+  Plotly.newPlot(div, data, {
+    barmode:'overlay',
+    margin:{t:30,r:10,l:40,b:35},
+    xaxis:{title:'Logit scale (relative)'},
+    yaxis:{title:'Count'},
+    legend:{orientation:'h'}
+  }, {displaylogo:false, responsive:true});
 }
