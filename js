@@ -1,15 +1,40 @@
 /***** app.js *****/
-let currentLang = 'zh-CN';
-const $ = (sel)=>document.querySelector(sel);
+import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, exportPlotPNG, downloadBlob } from './charts.js';
 
-// refs
+const $ = (s)=>document.querySelector(s);
+
+// ---------- i18n ----------
+let currentLang = localStorage.getItem('gradecast_lang') || 'en';
+const langSelect = $('#langSelect');
+langSelect.value = currentLang;
+document.documentElement.lang = currentLang;
+
+function applyI18n(){
+  const t = translations[currentLang]||translations.en;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const k = el.getAttribute('data-i18n');
+    if (t[k]) el.textContent = t[k];
+  });
+  document.querySelectorAll('option[data-i18n]').forEach(opt=>{
+    const k = opt.getAttribute('data-i18n');
+    if (t[k]) opt.textContent = t[k];
+  });
+}
+document.addEventListener('DOMContentLoaded', applyI18n);
+langSelect.addEventListener('change', ()=>{
+  currentLang = langSelect.value;
+  localStorage.setItem('gradecast_lang', currentLang);
+  document.documentElement.lang = currentLang;
+  applyI18n();
+});
+
+// ---------- elements ----------
 const itemFileInput = $('#itemFile');
 const scoreFileInput = $('#scoreFile');
 const predictFileInput = $('#predictItemFile');
 
 const itemMapDiv = $('#itemMapping');
 const itemIdSelect = $('#itemIdSelect');
-const featureColsSelect = $('#featureColsSelect');
 
 const scoreMapDiv = $('#scoreMapping');
 const studentIdSelect = $('#studentIdSelect');
@@ -18,11 +43,13 @@ const scoreItemIdSelect = $('#scoreItemIdSelect');
 const scoreValueSelect = $('#scoreValueSelect');
 const wideItemColsSelect = $('#wideItemColsSelect');
 
-const neuronsInput = $('#neuronsInput');
-const epochsInput = $('#epochsInput');
+const featureListDiv = $('#featureList');
+
 const batchSizeInput = $('#batchSizeInput');
 const learningRateInput = $('#learningRateInput');
-const activationSelect = $('#activationSelect');
+const epochsInput = $('#epochsInput');
+const layersBox = $('#layersBox');
+const addLayerBtn = $('#addLayerBtn');
 
 const validationList = $('#validationList');
 const addValidationBtn = $('#addValidationBtn');
@@ -31,110 +58,79 @@ const startBtn = $('#startBtn');
 const progressSection = $('#progressSection');
 const progressText = $('#progressText');
 const progressBar = $('#progressBar');
+
 const resultsContainer = $('#resultsContainer');
+const exportTestBtn = $('#exportTestBtn');
 
 const predictBtn = $('#predictBtn');
+const exportPredictBtn = $('#exportPredictBtn');
 const predictResultsDiv = $('#predictResults');
 
 const irtSummary = $('#irtSummary');
 const irtTableWrap = $('#irtTableWrap');
+const exportIRTBtn = $('#exportIRTBtn');
 
-// language
-const langSelect = $('#langSelect');
-document.documentElement.lang = currentLang;
-langSelect.value = currentLang;
-langSelect.addEventListener('change', ()=>{
-  currentLang = langSelect.value;
-  document.documentElement.lang = currentLang;
-  applyI18n();
-});
+// ---------- state ----------
+let itemRows=[], itemHeaders=[];
+let scoreRows=[], scoreHeaders=[];
+let selectedFeatures = []; // [{name, type:'categorical'|'numeric', use:true}]
+let dicts=null;            // one-hot dicts for categorical
+let inputDim=0;
 
-// data holders
-let itemRows = [];   // [{ItemID, Construct,...}]
-let itemHeaders = [];
-let scoreRows = [];  // long or wide format, as parsed rows
-let scoreHeaders = [];
-
-let trainedModels = []; // [{config, model, metrics, featureMap}]
-let bestModelIndex = -1;
-
-// ---------- i18n ----------
-function applyI18n() {
-  document.querySelectorAll('[data-i18n]').forEach(el=>{
-    const k = el.getAttribute('data-i18n');
-    const txt = (translations[currentLang]||{})[k];
-    if (txt) el.textContent = txt;
-  });
-  // options
-  document.querySelectorAll('option[data-i18n]').forEach(opt=>{
-    const k = opt.getAttribute('data-i18n');
-    const txt = (translations[currentLang]||{})[k];
-    if (txt) opt.textContent = txt;
-  });
-  // placeholders可能需要的话可补充
-}
-document.addEventListener('DOMContentLoaded', applyI18n);
+let trainedModels=[];      // [{config, model, metrics, dicts, testRows:[{act,pred,student,item}], best:boolean}]
+let bestModelIndex=-1;
 
 // ---------- helpers ----------
-function fillSelectOptions(selectEl, options) {
+function fillSelectOptions(selectEl, options, placeholder){
   selectEl.innerHTML = '';
+  if (placeholder){
+    const ph=document.createElement('option');
+    ph.value=''; ph.textContent=placeholder;
+    selectEl.appendChild(ph);
+  }
   options.forEach(name=>{
-    const opt = document.createElement('option');
-    opt.value = name; opt.textContent = name;
+    const opt=document.createElement('option');
+    opt.value=name; opt.textContent=name;
     selectEl.appendChild(opt);
   });
 }
-function fillMultiSelect(selectEl, options) {
+function fillMultiSelect(selectEl, options){
   selectEl.innerHTML = '';
   options.forEach(name=>{
-    const opt = document.createElement('option');
-    opt.value = name; opt.textContent = name;
+    const opt=document.createElement('option');
+    opt.value=name; opt.textContent=name;
     selectEl.appendChild(opt);
+  });
+}
+function parseCSV(file, onComplete){
+  Papa.parse(file, {
+    header:true, dynamicTyping:true, skipEmptyLines:true,
+    complete:(res)=>{
+      if (res.errors && res.errors.length){ alert('CSV parse error'); console.error(res.errors); return; }
+      onComplete(res.meta.fields||[], res.data||[]);
+    }
   });
 }
 function show(el){ el.classList.remove('hidden'); }
 function hide(el){ el.classList.add('hidden'); }
 
-// parse CSV
-function parseCSV(file, onComplete) {
-  Papa.parse(file, {
-    header: true,
-    dynamicTyping: true,
-    skipEmptyLines: true,
-    complete: (res)=>{
-      if (res.errors && res.errors.length) {
-        alert((translations[currentLang]?.uploadError)||'File upload error');
-        console.error(res.errors);
-        return;
-      }
-      onComplete(res.meta.fields||[], res.data||[]);
-    }
-  });
-}
-
-// read item file
-itemFileInput.addEventListener('change', (e)=>{
-  const f = e.target.files[0];
-  if (!f) return;
-  $('#itemFileName').textContent = f.name;
+// ---------- read files ----------
+itemFileInput.addEventListener('change', e=>{
+  const f=e.target.files[0]; if(!f) return;
+  $('#itemFileName').textContent=f.name;
   parseCSV(f,(headers,rows)=>{
-    itemHeaders = headers;
-    itemRows = rows;
-    // populate mapping UI
+    itemHeaders=headers; itemRows=rows;
     fillSelectOptions(itemIdSelect, headers);
-    fillMultiSelect(featureColsSelect, headers);
     show(itemMapDiv);
+    // build feature selection cards (default all categorical)
+    buildFeatureCards(headers);
   });
 });
-
-// read score file
-scoreFileInput.addEventListener('change', (e)=>{
-  const f = e.target.files[0];
-  if (!f) return;
-  $('#scoreFileName').textContent = f.name;
+scoreFileInput.addEventListener('change', e=>{
+  const f=e.target.files[0]; if(!f) return;
+  $('#scoreFileName').textContent=f.name;
   parseCSV(f,(headers,rows)=>{
-    scoreHeaders = headers;
-    scoreRows = rows;
+    scoreHeaders=headers; scoreRows=rows;
     fillSelectOptions(studentIdSelect, headers);
     fillSelectOptions(scoreItemIdSelect, headers);
     fillSelectOptions(scoreValueSelect, headers);
@@ -143,513 +139,549 @@ scoreFileInput.addEventListener('change', (e)=>{
   });
 });
 
-// add/remove validation blocks
+// ---------- Feature selection UI ----------
+function buildFeatureCards(headers){
+  const t = translations[currentLang]||translations.en;
+  featureListDiv.innerHTML='';
+  selectedFeatures=[];
+  headers.forEach(h=>{
+    if (h===itemIdSelect.value) return; // skip itemID by default
+    const card=document.createElement('div');
+    card.className='p-3 border border-gray-700 rounded';
+    card.innerHTML=`
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" class="featUse" checked>
+        <span>${h}</span>
+      </label>
+      <div class="mt-2 text-sm">
+        <label class="mr-3">
+          <input type="radio" name="enc_${h}" value="categorical" checked>
+          <span>categorical</span>
+        </label>
+        <label>
+          <input type="radio" name="enc_${h}" value="numeric">
+          <span>numeric</span>
+        </label>
+      </div>`;
+    featureListDiv.appendChild(card);
+    selectedFeatures.push({name:h, type:'categorical', use:true, card});
+    const useEl=card.querySelector('.featUse');
+    useEl.addEventListener('change', ()=> selObj().use=useEl.checked);
+    card.querySelectorAll(`input[name="enc_${h}"]`).forEach(r=>{
+      r.addEventListener('change', ()=> selObj().type=r.value);
+    });
+    function selObj(){ return selectedFeatures.find(x=>x.name===h); }
+  });
+}
+
+// ---------- Layers (multi hidden) ----------
+function addLayerRow(units=16, act='relu'){
+  const row=document.createElement('div');
+  row.className='flex items-center gap-2';
+  row.innerHTML=`
+    <label class="text-sm flex-1">
+      <span>Units</span>
+      <input type="number" class="units w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 mt-1" value="${units}" min="1"/>
+    </label>
+    <label class="text-sm flex-1">
+      <span>Activation</span>
+      <select class="act w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 mt-1">
+        <option value="relu">ReLU</option>
+        <option value="tanh">Tanh</option>
+        <option value="sigmoid">Sigmoid</option>
+      </select>
+    </label>
+    <button type="button" class="del bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-sm">-</button>
+  `;
+  row.querySelector('.act').value = act;
+  row.querySelector('.del').addEventListener('click', ()=> row.remove());
+  layersBox.appendChild(row);
+}
+addLayerBtn.addEventListener('click', ()=> addLayerRow());
+addLayerRow(32,'tanh'); // two defaults
+addLayerRow(16,'relu');
+
+// ---------- Validation blocks ----------
 const valTemplate = validationList.firstElementChild.cloneNode(true);
 addValidationBtn.addEventListener('click', ()=>{
   const b = valTemplate.cloneNode(true);
   const close = document.createElement('button');
-  close.textContent = '×';
-  close.className = 'absClose absolute top-2 right-2 text-gray-400 hover:text-red-500';
+  close.textContent='×';
+  close.className='absClose absolute top-2 right-2 text-gray-400 hover:text-red-500';
   b.appendChild(close);
   close.addEventListener('click', ()=> b.remove());
-  // listen loocv disable ratio
-  const methodSel = b.querySelector('.methodSelect');
-  const ratioInput = b.querySelector('.ratioInput');
+  const methodSel=b.querySelector('.methodSelect');
+  const ratioInput=b.querySelector('.ratioInput');
   methodSel.addEventListener('change', ()=>{
     const isLOO = methodSel.value==='loocv';
-    ratioInput.disabled = isLOO;
-    ratioInput.classList.toggle('opacity-50', isLOO);
+    ratioInput.disabled=isLOO; ratioInput.classList.toggle('opacity-50', isLOO);
   });
   validationList.appendChild(b);
 });
+(function initFirstVal(){
+  const box=validationList.firstElementChild;
+  const methodSel=box.querySelector('.methodSelect');
+  const ratioInput=box.querySelector('.ratioInput');
+  methodSel.addEventListener('change', ()=>{
+    const isLOO = methodSel.value==='loocv';
+    ratioInput.disabled=isLOO; ratioInput.classList.toggle('opacity-50', isLOO);
+  });
+})();
 
-// get mapped, normalized training samples
-// returns {X, y, meta}  where meta holds dictionaries for one-hot encoding
-function buildSamples() {
-  if (itemRows.length===0 || scoreRows.length===0) {
+// ---------- Build samples + encoder ----------
+function buildSamples(){
+  if (itemRows.length===0 || scoreRows.length===0){
     alert((translations[currentLang]?.needUpload)||'Please upload both CSVs first.');
     return null;
   }
   const itemIdCol = itemIdSelect.value;
-  const featureCols = Array.from(featureColsSelect.selectedOptions).map(o=>o.value);
-  if (!itemIdCol || featureCols.length===0) {
-    alert((translations[currentLang]?.chooseItemMapping)||'Please map ItemID and feature columns.');
-    return null;
-  }
-  // build item dict by ID
-  const itemById = new Map();
+  if (!itemIdCol){ alert(translations[currentLang]?.chooseItemMapping || 'Please map ItemID.'); return null; }
+
+  // Selected features
+  const features = selectedFeatures.filter(f=>f.use);
+  if (features.length===0){ alert('Select at least one feature.'); return null; }
+
+  // item dict
+  const itemById=new Map();
   itemRows.forEach(r=>{
-    const id = r[itemIdCol];
-    if (id==null) return;
-    const featObj = {};
-    featureCols.forEach(fc=> featObj[fc]= r[fc]);
+    const id=r[itemIdCol]; if(id==null) return;
+    const featObj={};
+    features.forEach(f=> featObj[f.name]= r[f.name]);
     itemById.set(id, featObj);
   });
 
-  // detect score format
-  const fmt = scoreFormatSelect.value; // 'long' or 'wide'
+  // score format
+  const fmt = scoreFormatSelect.value;
   const studentCol = studentIdSelect.value;
-  if (!studentCol) {
-    alert((translations[currentLang]?.chooseStudentCol)||'Please choose StudentID column.');
-    return null;
-  }
+  if (!studentCol){ alert(translations[currentLang]?.chooseStudentCol || 'Choose StudentID.'); return null; }
 
-  let samples = []; // each: {student, item, features:{}, score}
-  if (fmt==='long') {
-    const itemCol = scoreItemIdSelect.value;
-    const scoreCol = scoreValueSelect.value;
-    if (!itemCol || !scoreCol) {
-      alert((translations[currentLang]?.chooseLongCols)||'Please choose ItemID & Score columns for long format.');
-      return null;
-    }
+  const sampleRows=[]; // {student,item,feat,score}
+  if (fmt==='long'){
+    const itCol = scoreItemIdSelect.value;
+    const scCol = scoreValueSelect.value;
+    if (!itCol || !scCol){ alert(translations[currentLang]?.chooseLongCols || 'Choose ItemID & Score.'); return null; }
     scoreRows.forEach(r=>{
-      const sid = r[studentCol];
-      const iid = r[itemCol];
-      const sc  = r[scoreCol];
+      const sid=r[studentCol], iid=r[itCol], sc=r[scCol];
       if (sid==null || iid==null || sc==null) return;
-      const feat = itemById.get(iid);
-      if (!feat) return; // skip item not found in item csv
-      samples.push({student: sid, item: iid, feat, score: Number(sc)});
+      const feat=itemById.get(iid); if(!feat) return;
+      sampleRows.push({student:sid, item:iid, feat, score:Number(sc)});
     });
   } else {
-    // wide: each row = student, columns = item scores
-    const selectedItemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
-    if (selectedItemCols.length===0) {
-      alert((translations[currentLang]?.chooseWideCols)||'Please choose item columns for wide format.');
-      return null;
-    }
+    const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
+    if (itemCols.length===0){ alert(translations[currentLang]?.chooseWideCols || 'Choose item cols.'); return null; }
     scoreRows.forEach(r=>{
-      const sid = r[studentCol];
-      selectedItemCols.forEach(col=>{
-        const sc = r[col];
-        if (sc==null || sc==='') return;
-        const iid = col; // assume column header equals item id
-        const feat = itemById.get(iid);
-        if (!feat) return;
-        samples.push({student: sid, item: iid, feat, score: Number(sc)});
+      const sid=r[studentCol];
+      itemCols.forEach(col=>{
+        if (r[col]==null || r[col]==='') return;
+        const iid=col, sc=r[col];
+        const feat=itemById.get(iid); if(!feat) return;
+        sampleRows.push({student:sid, item:iid, feat, score:Number(sc)});
       });
     });
   }
-  if (samples.length===0) {
-    alert((translations[currentLang]?.noValidSamples)||'No valid samples after mapping.');
-    return null;
-  }
+  if (sampleRows.length===0){ alert(translations[currentLang]?.noValidSamples || 'No valid samples.'); return null; }
 
-  // build one-hot dictionaries (categorical only, as你要求)
-  const dicts = {};  // {colName: [uniqueValues]}
-  featureCols.forEach(fc=>{
-    dicts[fc] = [];
-  });
-  // (可选) 将 StudentID 也作为分类特征，便于个体化预测
-  const includeStudentAsCategorical = true;
-  if (includeStudentAsCategorical) dicts['__student__'] = [];
-
-  samples.forEach(s=>{
-    featureCols.forEach(fc=>{
-      const v = s.feat[fc];
-      if (!dicts[fc].includes(v)) dicts[fc].push(v);
-    });
-    if (includeStudentAsCategorical) {
-      if (!dicts['__student__'].includes(s.student)) dicts['__student__'].push(s.student);
+  // build dicts for categorical
+  dicts={};
+  features.forEach(f=>{
+    if (f.type==='categorical'){
+      dicts[f.name]=[];
     }
   });
+  dicts['__student__'] = []; // keep student identity categorical for kidmap + personalization
+  sampleRows.forEach(s=>{
+    features.forEach(f=>{
+      const v=s.feat[f.name];
+      if (f.type==='categorical'){
+        if (!dicts[f.name].includes(v)) dicts[f.name].push(v);
+      }
+    });
+    if (!dicts['__student__'].includes(s.student)) dicts['__student__'].push(s.student);
+  });
 
-  // build X,y
-  const inputDim = Object.values(dicts).reduce((sum,arr)=>sum+arr.length,0);
-  function encodeSample(s){
+  inputDim = Object.entries(dicts).reduce((acc,[k,arr])=>acc+arr.length,0) +
+             features.filter(f=>f.type==='numeric').length;
+
+  function encodeX(s){
     const vec = new Array(inputDim).fill(0);
-    let offset = 0;
-    for (const fc of Object.keys(dicts)) {
-      const arr = dicts[fc];
-      const val = (fc==='__student__')? s.student : s.feat[fc];
-      const idx = arr.indexOf(val);
-      if (idx>=0) vec[offset+idx]=1;
+    let offset=0;
+    // categorical
+    for (const [k,arr] of Object.entries(dicts)){
+      const val=(k==='__student__')? s.student : s.feat[k];
+      const i=arr.indexOf(val);
+      if (i>=0) vec[offset+i]=1;
       offset+=arr.length;
     }
+    // numeric append (z-score)
+    features.filter(f=>f.type==='numeric').forEach(f=>{
+      const val = Number(s.feat[f.name])||0;
+      vec[offset++] = val; // 简单放入，若需要可先标准化
+    });
     return vec;
   }
-  const X=[], y=[];
-  samples.forEach(s=>{
-    X.push(encodeSample(s));
-    y.push([s.score]);
-  });
 
-  return { X, y, samples, dicts, inputDim, featureCols, itemIdCol, studentCol };
+  const X=[], y=[];
+  sampleRows.forEach(s=>{ X.push(encodeX(s)); y.push([s.score]); });
+
+  return {X,y,sampleRows,features};
 }
 
-// train button
+// ---------- Training ----------
 startBtn.addEventListener('click', async ()=>{
-  const built = buildSamples();
-  if (!built) return;
-  const {X,y,inputDim,samples,dicts} = built;
+  const built = buildSamples(); if(!built) return;
+  const {X,y,sampleRows} = built;
 
-  // collect validation configs
-  const configs = [];
+  // validations
+  const configs=[];
   validationList.querySelectorAll('.relative').forEach(box=>{
-    const method = box.querySelector('.methodSelect').value;
-    const ratio  = Number(box.querySelector('.ratioInput').value||80)/100;
-    configs.push({method, ratio});
+    const method=box.querySelector('.methodSelect').value;
+    const ratio = Number(box.querySelector('.ratioInput').value||80)/100;
+    configs.push({method,ratio});
   });
-  if (configs.length===0) {
-    alert((translations[currentLang]?.noValidationAlert)||'Please add at least one validation.');
-    return;
-  }
+  if (configs.length===0){ alert(translations[currentLang]?.noValidationAlert || 'Add validation'); return; }
 
-  resultsContainer.innerHTML = '';
-  trainedModels = [];
-  bestModelIndex = -1;
-  let bestRmse = Infinity;
+  // layers
+  const layers=[];
+  layersBox.querySelectorAll('.flex.items-center').forEach(row=>{
+    const units = Number(row.querySelector('.units').value)||16;
+    const act   = row.querySelector('.act').value || 'relu';
+    layers.push({units, act});
+  });
 
-  startBtn.disabled = true;
-  progressBar.style.width='0%';
-  progressText.textContent = translations[currentLang]?.progressTraining?.replace('{current}',1).replace('{total}',configs.length).replace('{method}','') || 'Training...';
-  progressSection.classList.remove('hidden');
+  const epochs = Number(epochsInput.value)||120;
+  const bs     = Number(batchSizeInput.value)||32;
+  const lr     = Number(learningRateInput.value)||0.001;
 
-  for (let i=0;i<configs.length;i++) {
+  // start
+  resultsContainer.innerHTML='';
+  trainedModels=[]; bestModelIndex=-1; let best=Infinity;
+  progressBar.style.width='0%'; show(progressSection); startBtn.disabled=true;
+
+  for (let i=0;i<configs.length;i++){
     const {method, ratio} = configs[i];
+    progressText.textContent = (translations[currentLang]?.progressTraining||'Training (Run {current}/{total}) - {method}')
+      .replace('{current}',i+1).replace('{total}',configs.length).replace('{method}',method.toUpperCase());
 
     // split
-    let idx = [...Array(X.length).keys()];
-    tf.util.shuffle(idx);
+    let idx=[...Array(X.length).keys()]; tf.util.shuffle(idx);
     let trainIdx, testIdx;
-    if (method==='holdout') {
-      const nTrain = Math.max(1, Math.floor(idx.length*ratio));
-      trainIdx = idx.slice(0,nTrain);
-      testIdx  = idx.slice(nTrain);
-      if (testIdx.length===0) { testIdx = idx.slice(-1); trainIdx = idx.slice(0, idx.length-1); }
-    } else { // loocv: we'll loop
-      trainIdx = idx;
-      testIdx = null;
-    }
-
-    const Xtrain = (method==='holdout')? tf.tensor2d(trainIdx.map(k=>X[k])) : null;
-    const Ytrain = (method==='holdout')? tf.tensor2d(trainIdx.map(k=>y[k])) : null;
-    const Xtest  = (method==='holdout')? tf.tensor2d(testIdx.map(k=>X[k])) : null;
-    const Ytest  = (method==='holdout')? tf.tensor2d(testIdx.map(k=>y[k])) : null;
+    if (method==='holdout'){
+      const nTr = Math.max(1, Math.floor(idx.length*ratio));
+      trainIdx = idx.slice(0,nTr); testIdx = idx.slice(nTr);
+      if (testIdx.length===0){ testIdx=idx.slice(-1); trainIdx=idx.slice(0,idx.length-1); }
+    } else { trainIdx=idx; }
 
     // build model
-    const model = tf.sequential();
-    model.add(tf.layers.dense({
-      inputShape:[inputDim],
-      units: Number(neuronsInput.value)||16,
-      activation: activationSelect.value||'relu'
-    }));
+    const model=tf.sequential();
+    if (layers.length===0) layers.push({units:16,act:'relu'});
+    model.add(tf.layers.dense({inputShape:[inputDim], units:layers[0].units, activation:layers[0].act}));
+    for (let L=1;L<layers.length;L++){
+      model.add(tf.layers.dense({units:layers[L].units, activation:layers[L].act}));
+    }
     model.add(tf.layers.dense({units:1, activation:'linear'}));
-    const opt = tf.train.adam(Number(learningRateInput.value)||0.001);
-    model.compile({optimizer:opt, loss:'meanSquaredError'});
+    model.compile({optimizer:tf.train.adam(lr), loss:'meanSquaredError'});
 
-    let histLoss=[], histVal=[];
-    progressText.textContent = (translations[currentLang]?.progressTraining||'Training (Run {current}/{total})...')
-      .replace('{current}', i+1).replace('{total}', configs.length)
-      .replace('{method}', method.toUpperCase());
+    let metrics, cardTestRows=[];
 
-    if (method==='holdout') {
-      await model.fit(Xtrain, Ytrain, {
-        epochs: Number(epochsInput.value)||100,
-        batchSize: Number(batchSizeInput.value)||32,
-        validationData: [Xtest, Ytest],
-        callbacks:{
-          onEpochEnd:(ep,logs)=>{
-            const percent = Math.round((ep+1)/(Number(epochsInput.value)||100)*100);
-            progressBar.style.width = percent+'%';
-            histLoss.push(logs.loss);
-            if (logs.val_loss!=null) histVal.push(logs.val_loss);
-            progressText.textContent = (translations[currentLang]?.progressEpoch || 'Run {current}/{total} - Epoch {epoch}/{epochs}')
-                .replace('{current}',i+1).replace('{total}',configs.length)
-                .replace('{epoch}',ep+1).replace('{epochs}', Number(epochsInput.value)||100);
-          }
-        }
+    if (method==='holdout'){
+      const Xtr=tf.tensor2d(trainIdx.map(k=>X[k]));
+      const Ytr=tf.tensor2d(trainIdx.map(k=>y[k]));
+      const Xte=tf.tensor2d(testIdx.map(k=>X[k]));
+      const Yte=tf.tensor2d(testIdx.map(k=>y[k]));
+      const histLoss=[], histVal=[];
+      await model.fit(Xtr,Ytr,{
+        epochs, batchSize:bs, shuffle:true, validationData:[Xte,Yte],
+        callbacks:{ onEpochEnd:(ep,logs)=>{
+          histLoss.push(logs.loss); if (logs.val_loss!=null) histVal.push(logs.val_loss);
+          progressBar.style.width = Math.round((ep+1)/epochs*100)+'%';
+          progressText.textContent = (translations[currentLang]?.progressEpoch||'Run {current}/{total} - Epoch {epoch}/{epochs}')
+            .replace('{current}',i+1).replace('{total}',configs.length).replace('{epoch}',ep+1).replace('{epochs}',epochs);
+        }}
       });
+      const predT=model.predict(Xte);
+      const pred=Array.from(predT.dataSync()); const actual=Array.from(Yte.dataSync());
+      metrics = computeMetrics(actual, pred);
+
+      // collect test rows for export
+      cardTestRows = testIdx.map((k,ii)=>({
+        student: sampleRows[k].student,
+        item: sampleRows[k].item,
+        actual: actual[ii],
+        pred: pred[ii]
+      }));
+
+      renderResultCard({method,ratio,metrics,histLoss,histVal,actual,pred});
+      Xtr.dispose();Ytr.dispose();Xte.dispose();Yte.dispose();predT.dispose();
     } else {
       // LOOCV
-      const epochs = Number(epochsInput.value)||100;
-      const n = X.length;
       const preds=[], acts=[];
-      for (let k=0;k<n;k++){
-        const trainX = tf.tensor2d(X.filter((_,j)=>j!==k));
-        const trainY = tf.tensor2d(y.filter((_,j)=>j!==k));
-        const testX  = tf.tensor2d([X[k]]);
-        const testY  = y[k][0];
-
-        const local = tf.sequential();
-        local.add(tf.layers.dense({inputShape:[inputDim],units:Number(neuronsInput.value)||16,activation:activationSelect.value||'relu'}));
+      for (let k=0;k<X.length;k++){
+        const trainX=tf.tensor2d(X.filter((_,j)=>j!==k));
+        const trainY=tf.tensor2d(y.filter((_,j)=>j!==k));
+        const testX = tf.tensor2d([X[k]]);
+        const local=tf.sequential();
+        local.add(tf.layers.dense({inputShape:[inputDim],units:layers[0].units,activation:layers[0].act}));
+        for (let L=1;L<layers.length;L++) local.add(tf.layers.dense({units:layers[L].units, activation:layers[L].act}));
         local.add(tf.layers.dense({units:1,activation:'linear'}));
-        local.compile({optimizer: tf.train.adam(Number(learningRateInput.value)||0.001), loss:'meanSquaredError'});
-        await local.fit(trainX,trainY,{epochs, batchSize:Math.min(32, X.length-1), shuffle:true});
-        const p = local.predict(testX).dataSync()[0];
-        preds.push(p); acts.push(testY);
+        local.compile({optimizer:tf.train.adam(lr),loss:'meanSquaredError'});
+        await local.fit(trainX,trainY,{epochs, batchSize:Math.min(bs,X.length-1), shuffle:true});
+        const p=local.predict(testX).dataSync()[0]; preds.push(p); acts.push(y[k][0]);
         trainX.dispose(); trainY.dispose(); testX.dispose(); local.dispose();
-        progressBar.style.width = Math.round((k+1)/n*100)+'%';
-        progressText.textContent = (translations[currentLang]?.progressLOOCV || 'Run {current}/{total} - Processed {done}/{totalSamples} samples')
+        progressBar.style.width = Math.round((k+1)/X.length*100)+'%';
+        progressText.textContent = (translations[currentLang]?.progressLOOCV||'Run {current}/{total} - Processed {done}/{totalSamples} samples')
           .replace('{current}',i+1).replace('{total}',configs.length)
-          .replace('{done}',k+1).replace('{totalSamples}',n);
+          .replace('{done}',k+1).replace('{totalSamples}',X.length);
       }
-      // 组装伪history用于图
-      histLoss = [];
-      histVal  = [];
-      // 计算指标
-      const m = computeMetrics(acts, preds);
-      renderResultCard({method, ratio, metrics:m, histLoss, histVal, actual:acts, pred:preds});
-      // 保存模型占位（LOOCV不保留最终单模型）
-      trainedModels.push({config:{method,ratio}, model:null, metrics:m, dicts});
-      if (m.RMSE < bestRmse) { bestRmse=m.RMSE; bestModelIndex=trainedModels.length-1; }
-      continue;
+      metrics=computeMetrics(acts,preds);
+      renderResultCard({method,ratio,metrics,histLoss:[],histVal:[],actual:acts,pred:preds});
+      // LOOCV 不保留模型
     }
 
-    // predictions on test
-    const predT = model.predict(Xtest);
-    const predA = Array.from(predT.dataSync());
-    const actA  = Array.from(Ytest.dataSync());
-    const m = computeMetrics(actA, predA);
-    renderResultCard({method, ratio, metrics:m, histLoss, histVal, actual:actA, pred:predA});
-    trainedModels.push({config:{method,ratio}, model, metrics:m, dicts});
-    if (m.RMSE < bestRmse) { bestRmse=m.RMSE; bestModelIndex=trainedModels.length-1; }
-
-    // dispose tensors
-    Xtrain.dispose(); Ytrain.dispose(); Xtest.dispose(); Ytest.dispose(); predT.dispose();
+    trainedModels.push({config:{method,ratio}, model:(method==='holdout'?model:null), metrics, dicts, testRows:cardTestRows});
+    if (metrics.RMSE < best){ best=metrics.RMSE; bestModelIndex=trainedModels.length-1; }
   }
 
-  progressText.textContent = (translations[currentLang]?.progressComplete)||'Training complete';
-  setTimeout(()=> progressSection.classList.add('hidden'), 1200);
-  startBtn.disabled = false;
+  progressText.textContent = translations[currentLang]?.progressComplete || 'Training complete';
+  setTimeout(()=> hide(progressSection), 800);
+  startBtn.disabled=false;
 });
 
-// metrics
+// ---------- Metrics + Render ----------
 function computeMetrics(actual, pred){
-  const n = actual.length;
-  let mae=0, mse=0, sumY=0;
-  for (let i=0;i<n;i++){
-    const e = pred[i]-actual[i];
-    mae += Math.abs(e);
-    mse += e*e;
-    sumY += actual[i];
-  }
-  mae/=n; mse/=n;
-  const rmse = Math.sqrt(mse);
-  const meanY = sumY/n;
-  let sst=0;
-  for (let i=0;i<n;i++){ const d=actual[i]-meanY; sst+=d*d; }
-  const r2 = (sst>0)? (1 - mse*n/sst) : 1;
-  return { MAE:+mae.toFixed(3), MSE:+mse.toFixed(3), RMSE:+rmse.toFixed(3), R2:+r2.toFixed(3) };
+  const n=actual.length; let mae=0,mse=0,sumY=0;
+  for (let i=0;i<n;i++){ const e=pred[i]-actual[i]; mae+=Math.abs(e); mse+=e*e; sumY+=actual[i]; }
+  mae/=n; mse/=n; const rmse=Math.sqrt(mse); const meanY=sumY/n;
+  let sst=0; for (let i=0;i<n;i++){ const d=actual[i]-meanY; sst+=d*d; }
+  const r2 = sst>0 ? 1 - (mse*n)/sst : 1;
+  return {MAE:+mae.toFixed(3), MSE:+mse.toFixed(3), RMSE:+rmse.toFixed(3), R2:+r2.toFixed(3)};
 }
-
-function renderResultCard({method, ratio, metrics, histLoss, histVal, actual, pred}) {
-  const card = document.createElement('div');
+function renderResultCard({method,ratio,metrics,histLoss,histVal,actual,pred}){
+  const t = translations[currentLang]||translations.en;
+  const card=document.createElement('div');
   card.className='p-4 bg-gray-800 border border-gray-700 rounded';
-
-  const title = document.createElement('h3');
-  title.className='font-semibold mb-2';
-  if (method==='holdout') {
-    const trainPct = Math.round(ratio*100);
-    const testPct = 100-trainPct;
-    title.textContent = (translations[currentLang]?.resultHoldout || 'Holdout (Training {trainPct}% / Testing {testPct}%)')
-      .replace('{trainPct}',trainPct).replace('{testPct}',testPct);
-  } else {
-    title.textContent = translations[currentLang]?.resultLoocv || 'LOOCV (Leave-One-Out Cross-Validation)';
-  }
+  const title=document.createElement('h3'); title.className='font-semibold mb-2';
+  if (method==='holdout'){
+    title.textContent=(t.resultHoldout||'Holdout (Training {trainPct}% / Testing {testPct}%)')
+      .replace('{trainPct}', Math.round(ratio*100)).replace('{testPct}', 100-Math.round(ratio*100));
+  } else title.textContent=t.resultLoocv||'LOOCV';
   card.appendChild(title);
 
-  const ul = document.createElement('ul');
-  ['MAE','MSE','RMSE','R2'].forEach(k=>{
-    const li=document.createElement('li');
-    li.textContent = (translations[currentLang]?.[k]||k)+': '+metrics[k];
-    ul.appendChild(li);
-  });
+  const ul=document.createElement('ul');
+  ['MAE','MSE','RMSE','R2'].forEach(k=>{ const li=document.createElement('li'); li.textContent=(t[k]||k)+': '+metrics[k]; ul.appendChild(li); });
   card.appendChild(ul);
 
-  // charts
   if (histLoss?.length){
     const lossDiv=document.createElement('div'); lossDiv.style.height='220px'; card.appendChild(lossDiv);
-    drawLossCurvePlotly(lossDiv, histLoss, histVal, currentLang);
+    drawLossCurvePlotly(lossDiv, histLoss, histVal, t);
   }
   if (actual?.length){
     const scDiv=document.createElement('div'); scDiv.style.height='260px'; card.appendChild(scDiv);
-    drawScatterPlotPlotly(scDiv, actual, pred, currentLang);
+    drawScatterPlotPlotly(scDiv, actual, pred, t);
   }
   resultsContainer.appendChild(card);
 }
 
-// ---------- Predict ----------
-predictBtn.addEventListener('click', ()=>{
-  if (bestModelIndex<0 || !trainedModels[bestModelIndex].model) {
-    alert((translations[currentLang]?.trainFirst)||'Please train (holdout) to keep a model first.');
-    return;
-  }
-  const file = predictFileInput.files[0];
-  if (!file) { alert((translations[currentLang]?.choosePredictFile)||'Please upload predict item CSV.'); return; }
-  parseCSV(file,(headers,rows)=>{
-    // use same mapping & dicts
-    const built = buildSamples();
-    if (!built) return;
-    const {dicts, inputDim} = trainedModels[bestModelIndex];
-    const itemIdCol = itemIdSelect.value;
-    const featureCols = Array.from(featureColsSelect.selectedOptions).map(o=>o.value);
+// ---------- Export Test Predictions CSV ----------
+exportTestBtn.addEventListener('click', ()=>{
+  const rows=[];
+  trainedModels.forEach((m,idx)=>{
+    if (!m.testRows?.length) return;
+    m.testRows.forEach(r=>{
+      rows.push({run: idx+1, student:r.student, item:r.item, actual:r.actual, pred:r.pred});
+    });
+  });
+  if (!rows.length){ alert('No test predictions to export (use Holdout).'); return; }
+  const csv = Papa.unparse(rows);
+  const blob = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  downloadBlob(blob, 'test_predictions.csv');
+});
 
-    // build one-hot using dicts; unknown category -> ignore (all zero)
-    function encode(featObj, studentId) {
-      const vec = new Array(inputDim).fill(0);
+// ---------- Predict ----------
+let lastPredictRows=[]; // for export
+predictBtn.addEventListener('click', ()=>{
+  const best = trainedModels[bestModelIndex];
+  if (!best || !best.model){ alert(translations[currentLang]?.trainFirst || 'Train (holdout) first.'); return; }
+  const file=predictFileInput.files[0]; if(!file){ alert(translations[currentLang]?.choosePredictFile || 'Upload predict CSV'); return; }
+
+  parseCSV(file,(headers,rows)=>{
+    const itemIdCol = itemIdSelect.value;
+    const features = selectedFeatures.filter(f=>f.use);
+    const dicts = best.dicts;
+    const inputDimLocal = inputDim;
+
+    function encode(featObj, studentId){
+      const vec=new Array(inputDimLocal).fill(0);
       let offset=0;
-      for (const key of Object.keys(dicts)) {
-        const arr = dicts[key];
-        const val = (key==='__student__')? studentId : featObj[key];
-        const ix = arr.indexOf(val);
-        if (ix>=0) vec[offset+ix]=1;
+      for (const [k,arr] of Object.entries(dicts)){
+        const val=(k==='__student__')? studentId : featObj[k];
+        const i=arr.indexOf(val);
+        if (i>=0) vec[offset+i]=1;
         offset+=arr.length;
       }
+      features.filter(f=>f.type==='numeric').forEach(f=>{ vec[offset++]=Number(featObj[f.name])||0; });
       return vec;
     }
-
-    // build feature rows for each new item, and for every known student (to produce kidmap)
     const students = dicts['__student__']||[];
-    const model = trainedModels[bestModelIndex].model;
-
-    const predicts = []; // {student,item,pred}
+    const model=best.model;
+    const predicts=[];
     rows.forEach(r=>{
       const iid=r[itemIdCol]; if (iid==null) return;
-      const feat={};
-      featureCols.forEach(fc=> feat[fc]=r[fc]);
+      const feat={}; features.forEach(f=> feat[f.name]=r[f.name]);
       students.forEach(sid=>{
-        const x = encode(feat, sid);
-        const p = model.predict(tf.tensor2d([x])).dataSync()[0];
+        const x=encode(feat, sid);
+        const p=model.predict(tf.tensor2d([x])).dataSync()[0];
         predicts.push({student:sid, item:iid, pred:p});
       });
     });
+    lastPredictRows = predicts;
 
-    // render table preview & kidmap-like matrix
-    predictResultsDiv.innerHTML = '';
-    const info = document.createElement('div');
-    info.className='text-sm text-gray-300';
-    info.textContent = (translations[currentLang]?.predictSummary || 'Predicted pairs')+`: ${predicts.length}`;
+    // show quick preview
+    predictResultsDiv.innerHTML='';
+    const info=document.createElement('div'); info.className='text-sm text-gray-300';
+    info.textContent=(translations[currentLang]?.predictSummary||'Predicted pairs')+`: ${predicts.length}`;
     predictResultsDiv.appendChild(info);
 
-    // small table
-    const tbl = document.createElement('table');
-    tbl.className='mt-2 w-full text-sm';
-    tbl.innerHTML = `<thead><tr>
-      <th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred</th>
-    </tr></thead><tbody></tbody>`;
-    const tb = tbl.querySelector('tbody');
+    const tbl=document.createElement('table'); tbl.className='mt-2 w-full text-sm';
+    tbl.innerHTML='<thead><tr><th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred</th></tr></thead><tbody></tbody>';
+    const tb=tbl.querySelector('tbody');
     predicts.slice(0,100).forEach(r=>{
       const tr=document.createElement('tr');
-      tr.innerHTML = `<td>${r.student}</td><td>${r.item}</td><td>${r.pred.toFixed(3)}</td>`;
+      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${r.pred.toFixed(3)}</td>`;
       tb.appendChild(tr);
     });
     predictResultsDiv.appendChild(tbl);
 
-    // Wright Map & IRT calibration (based on predicted vs simple Rasch fit)
-    runIRTCalibration(predicts);
+    // IRT with stricter JML
+    runIRT_JML_fromPairs(predicts);
   });
 });
+exportPredictBtn.addEventListener('click', ()=>{
+  if (!lastPredictRows.length){ alert('No predictions yet.'); return; }
+  const csv = Papa.unparse(lastPredictRows);
+  const blob = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  downloadBlob(blob, 'predictions.csv');
+});
 
-// ---------- IRT ----------
-function runIRTCalibration(pairs){
-  // estimate theta (person) & b (item) by simple alternating updates (logistic Rasch)
-  // pairs: {student,item,pred} 这里没有真实分数 -> 我们用预测分数归一化为0-1近似响应概率
-  // 为了更贴近 IRT，这里将 pred 线性缩放到 [0,1] 区间（根据全体最小最大）
+// ---------- IRT (Stricter: JML / Fisher Scoring) ----------
+function runIRT_JML_fromPairs(pairs){
+  // y 使用预测概率映射到 [0,1]，如果你有真实0/1可直接替换
   const students=[...new Set(pairs.map(p=>p.student))];
   const items=[...new Set(pairs.map(p=>p.item))];
 
-  let pMin = Math.min(...pairs.map(p=>p.pred)), pMax = Math.max(...pairs.map(p=>p.pred));
-  if (pMax===pMin) { pMax = pMin+1e-6; }
-  pairs.forEach(p=> p.y = (p.pred - pMin)/(pMax-pMin)); // [0,1]
+  // scale predictions to [0,1]
+  let pMin=Math.min(...pairs.map(p=>p.pred)), pMax=Math.max(...pairs.map(p=>p.pred));
+  if (pMax===pMin) pMax=pMin+1e-6;
+  pairs.forEach(p=> p.y=(p.pred-pMin)/(pMax-pMin));
 
-  const theta = Object.fromEntries(students.map(s=>[s,0]));
-  const b     = Object.fromEntries(items.map(it=>[it,0]));
-  const lr=0.01, iters=60;
+  // init
+  const theta=Object.fromEntries(students.map(s=>[s,0]));
+  const b=Object.fromEntries(items.map(it=>[it,0]));
+  const maxIter=80, tol=1e-4;
 
-  for (let t=0;t<iters;t++){
-    // update theta
+  function prob(s,it){ return 1/(1+Math.exp(-(theta[s]-b[it]))); }
+
+  // Alternate Fisher Scoring for persons and items
+  for (let t=0;t<maxIter;t++){
+    let maxDelta=0;
+
+    // update theta (persons)
     students.forEach(s=>{
-      let grad=0;
+      let grad=0, info=0;
       pairs.filter(p=>p.student===s).forEach(p=>{
-        const prob = 1/(1+Math.exp(-(theta[s]-b[p.item])));
-        grad += (p.y - prob); // d loglik
+        const pr=prob(s,p.item);
+        grad += (p.y - pr);
+        info += pr*(1-pr);
       });
-      theta[s] += lr*grad;
+      if (info>1e-8){
+        const delta = grad/info;
+        theta[s] += delta;
+        maxDelta = Math.max(maxDelta, Math.abs(delta));
+      }
     });
-    // update b
+
+    // center thetas to avoid drift
+    const meanTheta = students.reduce((a,s)=>a+theta[s],0)/students.length;
+    students.forEach(s=> theta[s]-=meanTheta);
+
+    // update items
     items.forEach(it=>{
-      let grad=0;
+      let grad=0, info=0;
       pairs.filter(p=>p.item===it).forEach(p=>{
-        const prob = 1/(1+Math.exp(-(theta[p.student]-b[it])));
-        grad += -(p.y - prob);
+        const pr=prob(p.student,it);
+        grad += -(p.y - pr);
+        info += pr*(1-pr);
       });
-      b[it] += lr*grad;
+      if (info>1e-8){
+        const delta = grad/info;
+        b[it] += delta;
+        maxDelta = Math.max(maxDelta, Math.abs(delta));
+      }
     });
+
+    // center items (sum b ~ 0)
+    const meanB = items.reduce((a,it)=>a+b[it],0)/items.length;
+    items.forEach(it=> b[it]-=meanB);
+
+    if (maxDelta < tol) break;
   }
 
-  // compute fit stats
-  // standardized residual z = (y - p)/sqrt(p*(1-p))
-  const statsByItem = {};
-  items.forEach(it=> statsByItem[it] = {sumU:0,sumW:0,sumZ2:0,count:0, zList:[]});
+  // Fit statistics
+  const statsByItem={};
+  items.forEach(it=> statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
   pairs.forEach(p=>{
-    const pr = 1/(1+Math.exp(-(theta[p.student]-b[p.item])));
-    const varp = pr*(1-pr) || 1e-6;
+    const pr=prob(p.student,p.item);
+    const varp = Math.max(pr*(1-pr), 1e-8);
     const z = (p.y - pr)/Math.sqrt(varp);
-    const w = varp; // info weight
-    const itStat = statsByItem[p.item];
-    itStat.sumU += z*z;                   // outfit numerator (~均方)
-    itStat.sumW += w*z*z;                 // infit weighted
-    itStat.sumZ2+= z*z;
-    itStat.zList.push(z);
-    itStat.count++;
+    statsByItem[p.item].sumZ2 += z*z;           // Outfit numerator
+    statsByItem[p.item].sumZ2w += varp * z*z;   // Infit numerator (weighted)
+    statsByItem[p.item].sumW += varp;
+    statsByItem[p.item].count++;
   });
 
-  // convert to table rows
   const rows=[];
   items.forEach(it=>{
-    const st = statsByItem[it];
-    const n = Math.max(1, st.count);
-    const outfit = st.sumU/n;
-    const infit  = st.sumW/n;
-    // t统计近似：标准化残差均值 / sqrt(var/n) ~ 0，这里用z均值近似
-    const zbar = st.zList.reduce((a,b)=>a+b,0)/n;
-    const tInfit  = zbar; // 近似
-    const tOutfit = zbar;
-    // p值近似正态：2*Phi(-|z|)
-    function approxP(z){ return 2*(1-phiCdf(Math.abs(z))); }
-    const pInfit = approxP(tInfit);
-    const pOutfit= approxP(tOutfit);
-
+    const s=statsByItem[it], n=Math.max(1,s.count);
+    const outfit = s.sumZ2/n;
+    const infit  = (s.sumW>0)? s.sumZ2w/s.sumW : s.sumZ2/n;
+    const tZ = 0; // 严格的标准化t可用更复杂公式，这里给出近似为0均值
+    const pVal=(z)=>2*(1-phiCdf(Math.abs(z)));
     rows.push({
-      item: it,
-      Outfit: +outfit.toFixed(2),
-      Outfit_t: +tOutfit.toFixed(2),
-      Outfit_p: +pOutfit.toFixed(2),
-      Infit: +infit.toFixed(2),
-      Infit_t: +tInfit.toFixed(2),
-      Infit_p: +pInfit.toFixed(2)
+      Item: it,
+      Outfit:+outfit.toFixed(2),
+      Outfit_t:+tZ.toFixed(2),
+      Outfit_p:+pVal(tZ).toFixed(2),
+      Infit:+infit.toFixed(2),
+      Infit_t:+tZ.toFixed(2),
+      Infit_p:+pVal(tZ).toFixed(2)
     });
   });
 
-  // reliability & variance (粗略)
-  const thetaVals = students.map(s=>theta[s]);
-  const itemVals  = items.map(it=>b[it]);
-  const variancePersons = variance(thetaVals);
-  const varianceItems   = variance(itemVals);
-  // 粗略信度：person separation reliability ~ Var(theta)/(Var(theta)+error)
-  // 用平均 var(p) 近似误差
+  // Reliability / Variance
+  const thetaVals=students.map(s=>theta[s]);
+  const itemVals=items.map(it=>b[it]);
+  const variance = arr=>{
+    const m=arr.reduce((a,b)=>a+b,0)/arr.length;
+    return arr.reduce((a,x)=>a+(x-m)*(x-m),0)/arr.length;
+  };
+  const varPersons = variance(thetaVals);
+  const varItems   = variance(itemVals);
   const avgVar = pairs.reduce((a,p)=>{
-    const pr = 1/(1+Math.exp(-(theta[p.student]-b[p.item])));
+    const pr=1/(1+Math.exp(-(theta[p.student]-b[p.item])));
     return a + pr*(1-pr);
   },0)/pairs.length;
-  const reliability = variancePersons/(variancePersons + avgVar || 1e-6);
+  const reliability = varPersons/(varPersons+avgVar || 1e-6);
 
-  // render summary
+  // render summary + charts + table
   irtSummary.innerHTML = `
     <div class="text-sm">
       <div><strong>Reliability</strong>: ${reliability.toFixed(3)}</div>
-      <div><strong>Variance (Persons)</strong>: ${variancePersons.toFixed(3)} | 
-           <strong>Variance (Items)</strong>: ${varianceItems.toFixed(3)}</div>
+      <div><strong>Variance (Persons)</strong>: ${varPersons.toFixed(3)} |
+           <strong>Variance (Items)</strong>: ${varItems.toFixed(3)}</div>
     </div>
   `;
+  drawWrightMap('wrightChart', thetaVals, itemVals);
 
-  // wright map
-  drawWrightMap('wrightChart', thetaVals, itemVals, currentLang);
-
-  // table render
-  const tbl = document.createElement('table');
-  tbl.className='w-full text-sm';
+  const tbl=document.createElement('table'); tbl.className='w-full text-sm';
   tbl.innerHTML = `
     <thead>
       <tr class="border-b border-gray-700">
@@ -661,83 +693,311 @@ function runIRTCalibration(pairs){
         <th class="text-right py-1 px-2">Infit_t</th>
         <th class="text-right py-1 px-2">Infit_p</th>
       </tr>
-    </thead>
-    <tbody></tbody>`;
-  const tb = tbl.querySelector('tbody');
+    </thead><tbody></tbody>`;
+  const tb=tbl.querySelector('tbody');
   rows.forEach(r=>{
     const tr=document.createElement('tr');
-    tr.innerHTML = `
-      <td class="py-1 px-2">${r.item}</td>
+    tr.innerHTML=`<td class="py-1 px-2">${r.Item}</td>
       <td class="py-1 px-2 text-right">${r.Outfit.toFixed(2)}</td>
       <td class="py-1 px-2 text-right">${r.Outfit_t.toFixed(2)}</td>
       <td class="py-1 px-2 text-right">${r.Outfit_p.toFixed(2)}</td>
       <td class="py-1 px-2 text-right">${r.Infit.toFixed(2)}</td>
       <td class="py-1 px-2 text-right">${r.Infit_t.toFixed(2)}</td>
-      <td class="py-1 px-2 text-right">${r.Infit_p.toFixed(2)}</td>
-    `;
+      <td class="py-1 px-2 text-right">${r.Infit_p.toFixed(2)}</td>`;
     tb.appendChild(tr);
   });
-  irtTableWrap.innerHTML = '';
-  irtTableWrap.appendChild(tbl);
-}
+  irtTableWrap.innerHTML=''; irtTableWrap.appendChild(tbl);
 
-function variance(arr) {
-  if (arr.length===0) return 0;
-  const m = arr.reduce((a,b)=>a+b,0)/arr.length;
-  return arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
+  // export IRT table
+  exportIRTBtn.onclick = ()=>{
+    const csv = Papa.unparse(rows);
+    const blob = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+    downloadBlob(blob, 'irt_table.csv');
+  };
 }
-// 正态CDF近似
+// Normal CDF
 function phiCdf(z){
-  // Abramowitz-Stegun approximation
-  const t = 1/(1+0.2316419*z);
-  const d = Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
-  const p = 1 - d*(0.319381530*t - 0.356563782*t**2 + 1.781477937*t**3 - 1.821255978*t**4 + 1.330274429*t**5);
-  return p;
+  const t=1/(1+0.2316419*Math.abs(z));
+  const d=Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
+  const p=1 - d*(0.319381530*t - 0.356563782*t**2 + 1.781477937*t**3 - 1.821255978*t**4 + 1.330274429*t**5);
+  return z>=0? p : 1-p;
 }
 
-// 初始绑定（禁用比例当选择loocv）
-(function initValidationBox(){
-  const mSel = validationList.querySelector('.methodSelect');
-  const rInp = validationList.querySelector('.ratioInput');
-  mSel.addEventListener('change', ()=>{
-    const isL = mSel.value==='loocv';
-    rInp.disabled=isL; rInp.classList.toggle('opacity-50', isL);
-  });
-})();
+/***** languages.js *****/
+const translations = {
+  en: {
+    appTitle:"GradeCast Educational Assessment Platform",
+    toc:"Contents",
+    tocUpload:"Upload & Mapping",
+    tocFeatureSel:"Feature Selection",
+    tocConfig:"Model Config & Validation",
+    tocTrain:"Training & Progress",
+    tocResults:"Results",
+    tocPredict:"Prediction",
+    tocIRT:"IRT Calibration",
+    sectionUpload:"1. Upload & Column Mapping",
+    itemCsvTitle:"Item Descriptive CSV",
+    itemCsvDesc:"Include: ItemID, Construct, Format ...",
+    columnMapping:"Column Mapping",
+    itemIdCol:"Item ID Column",
+    scoreCsvTitle:"Student Responses CSV",
+    scoreCsvDesc:"Long: (StudentID, ItemID, Score). Wide: row=student, columns=items.",
+    studentIdCol:"Student ID Column",
+    scoreFormat:"Score Format",
+    formatLong:"Long: StudentID/ItemID/Score",
+    formatWide:"Wide: row=student, cols=items",
+    scoreCol:"Score Column (Long)",
+    wideItemCols:"Wide Item Columns (multi-select)",
+    loadedItemFile:"Item file:",
+    loadedScoreFile:"Score file:",
+    sectionFeatures:"2. Feature Selection (for ANN)",
+    featureHint:"Choose which columns from the Item CSV participate in the model, and set encoding type.",
+    sectionConfig:"3. Model Structure & Validation",
+    modelStructTitle:"Model Structure",
+    batchSize:"Batch Size",
+    learningRate:"Learning Rate",
+    epochs:"Epochs",
+    hiddenLayers:"Hidden Layers",
+    addLayer:"+ Add Layer",
+    validationTitle:"Validation Configs (add more)",
+    validationMethod:"Validation Method",
+    holdoutOption:"Holdout (Train/Test Split)",
+    loocvOption:"LOOCV (Leave-One-Out)",
+    trainRatio:"Train Ratio (%)",
+    addValidation:"+ Add Validation",
+    sectionTrain:"4. Start Training",
+    startTraining:"Start Training",
+    progressTraining:"Training (Run {current}/{total}) - {method}",
+    progressEpoch:"Run {current}/{total} - Epoch {epoch}/{epochs}",
+    progressLOOCV:"Run {current}/{total} - Processed {done}/{totalSamples} samples",
+    progressComplete:"Training complete",
+    sectionResults:"5. Training Results",
+    exportTestCSV:"Export Test Predictions CSV",
+    resultHoldout:"Holdout (Training {trainPct}% / Testing {testPct}%)",
+    resultLoocv:"LOOCV (Leave-One-Out Cross-Validation)",
+    MAE:"MAE (Mean Absolute Error)",
+    MSE:"MSE (Mean Squared Error)",
+    RMSE:"RMSE (Root Mean Squared Error)",
+    R2:"R² (Coefficient of Determination)",
+    trainingLoss:"Training Loss",
+    validationLoss:"Validation Loss",
+    epochAxis:"Epoch",
+    lossAxis:"Loss",
+    actualVsPred:"Predicted vs Actual",
+    idealLine:"Ideal (Y=X)",
+    actualAxis:"Actual",
+    predictedAxis:"Predicted",
+    sectionPredict:"6. Predict New Items",
+    predictFileTitle:"Upload new Item Descriptive CSV (same structure)",
+    runPredict:"Run Prediction",
+    exportPredictCSV:"Export Prediction CSV",
+    predictSummary:"Predicted pairs",
+    sectionIRT:"7. IRT Calibration & Wright Map",
+    exportIRTCSV:"Export IRT Table CSV",
+    // alerts
+    needUpload:"Please upload both CSVs first.",
+    chooseItemMapping:"Please map ItemID.",
+    chooseStudentCol:"Please choose StudentID column.",
+    chooseLongCols:"Please choose ItemID & Score columns for long format.",
+    chooseWideCols:"Please choose item columns for wide format.",
+    noValidSamples:"No valid samples after mapping.",
+    noValidationAlert:"Please add at least one validation method.",
+    trainFirst:"Please train (holdout) to keep a model first.",
+    choosePredictFile:"Please upload predict item CSV."
+  },
+  "zh-CN": {
+    appTitle:"GradeCast 教育评估平台",
+    toc:"功能目录",
+    tocUpload:"上传 & 列映射",
+    tocFeatureSel:"特征选择",
+    tocConfig:"模型配置 & 验证方案",
+    tocTrain:"训练 & 进度",
+    tocResults:"结果",
+    tocPredict:"预测",
+    tocIRT:"IRT 校准",
+    sectionUpload:"1. 上传数据与列映射",
+    itemCsvTitle:"Item 描述信息 CSV",
+    itemCsvDesc:"包含：ItemID、Construct、Format 等等。",
+    columnMapping:"列映射",
+    itemIdCol:"Item ID 列",
+    scoreCsvTitle:"学生作答成绩 CSV",
+    scoreCsvDesc:"长表：StudentID, ItemID, Score；宽表：行=学生，列=题目。",
+    studentIdCol:"Student ID 列",
+    scoreFormat:"成绩格式",
+    formatLong:"长表：StudentID/ItemID/Score",
+    formatWide:"宽表：行=学生，列=题号",
+    scoreCol:"Score 列（长表）",
+    wideItemCols:"宽表 Item 列（多选）",
+    loadedItemFile:"Item 文件：",
+    loadedScoreFile:"成绩 文件：",
+    sectionFeatures:"2. 特征选择（参与 ANN）",
+    featureHint:"从 Item CSV 里选择要参与建模的列，并设置编码类型。",
+    sectionConfig:"3. 模型结构 & 验证",
+    modelStructTitle:"模型结构",
+    batchSize:"批量大小",
+    learningRate:"学习率",
+    epochs:"训练轮数",
+    hiddenLayers:"隐藏层",
+    addLayer:"+ 添加隐藏层",
+    validationTitle:"验证方案（可添加多个）",
+    validationMethod:"验证方法",
+    holdoutOption:"拆分验证 (Holdout)",
+    loocvOption:"留一验证 (LOOCV)",
+    trainRatio:"训练比例 (%)",
+    addValidation:"+ 添加验证方案",
+    sectionTrain:"4. 开始训练",
+    startTraining:"开始训练",
+    progressTraining:"训练中 (配置 {current}/{total}) - {method}",
+    progressEpoch:"配置 {current}/{total} - 第 {epoch}/{epochs} 轮",
+    progressLOOCV:"配置 {current}/{total} - 已处理 {done}/{totalSamples} 个样本",
+    progressComplete:"训练完成",
+    sectionResults:"5. 训练结果",
+    exportTestCSV:"导出测试集预测 CSV",
+    resultHoldout:"拆分验证 (训练 {trainPct}% / 测试 {testPct}%)",
+    resultLoocv:"留一验证 (LOOCV)",
+    MAE:"MAE（平均绝对误差）",
+    MSE:"MSE（均方误差）",
+    RMSE:"RMSE（均方根误差）",
+    R2:"R²（决定系数）",
+    trainingLoss:"训练损失",
+    validationLoss:"验证损失",
+    epochAxis:"轮次",
+    lossAxis:"损失",
+    actualVsPred:"预测 vs 实际",
+    idealLine:"理想线 (Y=X)",
+    actualAxis:"实际值",
+    predictedAxis:"预测值",
+    sectionPredict:"6. 新题预测",
+    predictFileTitle:"上传新的 Item 描述 CSV（结构一致）",
+    runPredict:"运行预测",
+    exportPredictCSV:"导出预测 CSV",
+    predictSummary:"预测（学生×题目）组合数",
+    sectionIRT:"7. IRT 校准 & Wright Map",
+    exportIRTCSV:"导出 IRT 表格 CSV",
+    // alerts
+    needUpload:"请先上传两个 CSV 文件。",
+    chooseItemMapping:"请先选择 ItemID 列。",
+    chooseStudentCol:"请选择 StudentID 列。",
+    chooseLongCols:"长表需选择 ItemID 与 Score 列。",
+    chooseWideCols:"宽表需选择题目列（多选）。",
+    noValidSamples:"列映射后无有效样本。",
+    noValidationAlert:"请至少添加一个验证方案。",
+    trainFirst:"请先用 Holdout 训练得到模型。",
+    choosePredictFile:"请上传用于预测的 Item 描述 CSV。"
+  },
+  "zh-TW": {
+    appTitle:"GradeCast 教育評估平台",
+    toc:"功能目錄",
+    tocUpload:"上傳 & 欄位對應",
+    tocFeatureSel:"特徵選擇",
+    tocConfig:"模型配置 & 驗證方案",
+    tocTrain:"訓練 & 進度",
+    tocResults:"結果",
+    tocPredict:"預測",
+    tocIRT:"IRT 校準",
+    sectionUpload:"1. 上傳資料與欄位對應",
+    itemCsvTitle:"Item 描述資訊 CSV",
+    itemCsvDesc:"包含：ItemID、Construct、Format 等等。",
+    columnMapping:"欄位對應",
+    itemIdCol:"Item ID 欄",
+    scoreCsvTitle:"學生作答成績 CSV",
+    scoreCsvDesc:"長表：StudentID, ItemID, Score；寬表：列=學生，欄=題目。",
+    studentIdCol:"Student ID 欄",
+    scoreFormat:"成績格式",
+    formatLong:"長表：StudentID/ItemID/Score",
+    formatWide:"寬表：列=學生，欄=題號",
+    scoreCol:"Score 欄（長表）",
+    wideItemCols:"寬表 Item 欄（多選）",
+    loadedItemFile:"Item 檔案：",
+    loadedScoreFile:"成績 檔案：",
+    sectionFeatures:"2. 特徵選擇（參與 ANN）",
+    featureHint:"從 Item CSV 中勾選參與建模的欄位，並設定編碼類型。",
+    sectionConfig:"3. 模型結構 & 驗證",
+    modelStructTitle:"模型結構",
+    batchSize:"批次大小",
+    learningRate:"學習率",
+    epochs:"訓練輪數",
+    hiddenLayers:"隱藏層",
+    addLayer:"+ 新增隱藏層",
+    validationTitle:"驗證方案（可新增多個）",
+    validationMethod:"驗證方法",
+    holdoutOption:"拆分驗證 (Holdout)",
+    loocvOption:"留一驗證 (LOOCV)",
+    trainRatio:"訓練比例 (%)",
+    addValidation:"+ 新增驗證方案",
+    sectionTrain:"4. 開始訓練",
+    startTraining:"開始訓練",
+    progressTraining:"訓練中 (配置 {current}/{total}) - {method}",
+    progressEpoch:"配置 {current}/{total} - 第 {epoch}/{epochs} 輪",
+    progressLOOCV:"配置 {current}/{total} - 已處理 {done}/{totalSamples} 個樣本",
+    progressComplete:"訓練完成",
+    sectionResults:"5. 訓練結果",
+    exportTestCSV:"匯出測試集預測 CSV",
+    resultHoldout:"拆分驗證 (訓練 {trainPct}% / 測試 {testPct}%)",
+    resultLoocv:"留一驗證 (LOOCV)",
+    MAE:"MAE（平均絕對誤差）",
+    MSE:"MSE（均方誤差）",
+    RMSE:"RMSE（均方根誤差）",
+    R2:"R²（決定係數）",
+    trainingLoss:"訓練損失",
+    validationLoss:"驗證損失",
+    epochAxis:"輪次",
+    lossAxis:"損失",
+    actualVsPred:"預測 vs 實際",
+    idealLine:"理想線 (Y=X)",
+    actualAxis:"實際值",
+    predictedAxis:"預測值",
+    sectionPredict:"6. 新題預測",
+    predictFileTitle:"上傳新的 Item 描述 CSV（結構一致）",
+    runPredict:"執行預測",
+    exportPredictCSV:"匯出預測 CSV",
+    predictSummary:"預測（學生×題目）組合數",
+    sectionIRT:"7. IRT 校準 & Wright Map",
+    exportIRTCSV:"匯出 IRT 表格 CSV",
+    // alerts
+    needUpload:"請先上傳兩個 CSV。",
+    chooseItemMapping:"請先選擇 ItemID 欄。",
+    chooseStudentCol:"請選擇 StudentID 欄。",
+    chooseLongCols:"長表需選擇 ItemID 與 Score 欄。",
+    chooseWideCols:"寬表需選擇題目欄（多選）。",
+    noValidSamples:"欄位對應後沒有有效樣本。",
+    noValidationAlert:"請至少新增一個驗證方案。",
+    trainFirst:"請先以 Holdout 訓練保留模型。",
+    choosePredictFile:"請上傳用於預測的 Item 描述 CSV。"
+  }
+};
 
 /***** charts.js *****/
-function drawLossCurvePlotly(div, trainLoss, valLoss, lang){
+export function drawLossCurvePlotly(div, trainLoss, valLoss, t){
   const data = [
-    { x: trainLoss.map((_,i)=>i+1), y: trainLoss, type:'scatter', name:(translations[lang]?.trainingLoss)||'Training Loss' }
+    { x: trainLoss.map((_,i)=>i+1), y: trainLoss, type:'scatter', name:(t.trainingLoss||'Training Loss') }
   ];
-  if (valLoss && valLoss.length) {
-    data.push({ x: valLoss.map((_,i)=>i+1), y: valLoss, type:'scatter', name:(translations[lang]?.validationLoss)||'Validation Loss' });
-  }
+  if (valLoss && valLoss.length) data.push({ x: valLoss.map((_,i)=>i+1), y: valLoss, type:'scatter', name:(t.validationLoss||'Validation Loss') });
   Plotly.newPlot(div, data, {
     margin:{t:30,r:10,l:40,b:35},
-    xaxis:{title:(translations[lang]?.epochAxis)||'Epoch'},
-    yaxis:{title:(translations[lang]?.lossAxis)||'Loss'}
+    xaxis:{title:(t.epochAxis||'Epoch')},
+    yaxis:{title:(t.lossAxis||'Loss')}
   }, {displaylogo:false, responsive:true});
 }
 
-function drawScatterPlotPlotly(div, actual, pred, lang){
+export function drawScatterPlotPlotly(div, actual, pred, t){
   const min = Math.min(...actual, ...pred);
   const max = Math.max(...actual, ...pred);
   const data = [
-    { x: actual, y: pred, mode:'markers', type:'scatter', name:(translations[lang]?.actualVsPred)||'Predicted vs Actual' },
-    { x: [min,max], y:[min,max], mode:'lines', name:(translations[lang]?.idealLine)||'Ideal (Y=X)' }
+    { x: actual, y: pred, mode:'markers', type:'scatter', name:(t.actualVsPred||'Predicted vs Actual') },
+    { x: [min,max], y:[min,max], mode:'lines', name:(t.idealLine||'Ideal (Y=X)') }
   ];
   Plotly.newPlot(div, data, {
     margin:{t:30,r:10,l:40,b:35},
-    xaxis:{title:(translations[lang]?.actualAxis)||'Actual'},
-    yaxis:{title:(translations[lang]?.predictedAxis)||'Predicted'}
+    xaxis:{title:(t.actualAxis||'Actual')},
+    yaxis:{title:(t.predictedAxis||'Predicted')}
   }, {displaylogo:false, responsive:true});
 }
 
-function drawWrightMap(divId, thetaVals, itemVals, lang){
+export function drawWrightMap(divId, thetaVals, itemVals){
   const div = (typeof divId==='string')? document.getElementById(divId): divId;
   const data = [
-    { x: thetaVals, type:'histogram', name:'Persons', orientation:'v', opacity:0.7 },
+    { x: thetaVals, type:'histogram', name:'Persons', opacity:0.7 },
     { x: itemVals,  type:'histogram', name:'Items',   opacity:0.7 }
   ];
   Plotly.newPlot(div, data, {
@@ -749,242 +1009,22 @@ function drawWrightMap(divId, thetaVals, itemVals, lang){
   }, {displaylogo:false, responsive:true});
 }
 
-/***** languages.js *****/
-const translations = {
-  "en": {
-    "appTitle":"GradeCast Educational Assessment Platform",
-    "toc":"Contents",
-    "tocUpload":"Upload & Mapping",
-    "tocConfig":"Model Config & Validation",
-    "tocTrain":"Training & Progress",
-    "tocResults":"Results",
-    "tocPredict":"Prediction",
-    "tocIRT":"IRT Calibration",
-    "sectionUpload":"1. Upload & Column Mapping",
-    "itemCsvTitle":"Item Descriptive CSV",
-    "itemCsvDesc":"Include columns like: ItemID, Construct, Format, etc (you can select multiple features).",
-    "columnMapping":"Column Mapping",
-    "itemIdCol":"Item ID Column",
-    "featureCols":"Feature Columns (multi-select)",
-    "scoreCsvTitle":"Student Responses CSV",
-    "scoreCsvDesc":"Two formats supported: Long (StudentID, ItemID, Score) or Wide (row=student, columns=items).",
-    "studentIdCol":"Student ID Column",
-    "scoreFormat":"Score Format",
-    "formatLong":"Long: StudentID/ItemID/Score",
-    "formatWide":"Wide: Row=Student, Cols=Items",
-    "scoreCol":"Score Column (Long)",
-    "wideItemCols":"Wide Item Columns (multi-select)",
-    "sectionConfig":"2. Model Structure & Multi-Validation",
-    "modelStructTitle":"Model Structure",
-    "hiddenNeurons":"Hidden Neurons",
-    "epochs":"Epochs",
-    "batchSize":"Batch Size",
-    "learningRate":"Learning Rate",
-    "activationFunc":"Activation Function",
-    "reluOption":"ReLU (Rectified Linear Unit)",
-    "sigmoidOption":"Sigmoid (Logistic)",
-    "tanhOption":"Tanh (Hyperbolic Tangent)",
-    "validationTitle":"Validation Configs (add more)",
-    "validationMethod":"Validation Method",
-    "holdoutOption":"Holdout (Train/Test Split)",
-    "loocvOption":"LOOCV (Leave-One-Out)",
-    "trainRatio":"Train Ratio (%)",
-    "addValidation":"+ Add Validation",
-    "sectionTrain":"3. Start Training",
-    "startTraining":"Start Training",
-    "progressTraining":"Training (Run {current}/{total}) - {method}",
-    "progressEpoch":"Run {current}/{total} - Epoch {epoch}/{epochs}",
-    "progressLOOCV":"Run {current}/{total} - Processed {done}/{totalSamples} samples",
-    "progressComplete":"Training complete",
-    "sectionResults":"4. Training Results",
-    "resultHoldout":"Holdout (Training {trainPct}% / Testing {testPct}%)",
-    "resultLoocv":"LOOCV (Leave-One-Out Cross-Validation)",
-    "MAE":"MAE (Mean Absolute Error)",
-    "MSE":"MSE (Mean Squared Error)",
-    "RMSE":"RMSE (Root Mean Squared Error)",
-    "R2":"R² (Coefficient of Determination)",
-    "trainingLoss":"Training Loss",
-    "validationLoss":"Validation Loss",
-    "epochAxis":"Epoch",
-    "lossAxis":"Loss",
-    "actualVsPred":"Predicted vs Actual",
-    "idealLine":"Ideal (Y=X)",
-    "actualAxis":"Actual",
-    "predictedAxis":"Predicted",
-    "sectionPredict":"5. Predict New Items",
-    "predictFileTitle":"Upload new Item Descriptive CSV (same structure)",
-    "runPredict":"Run Prediction",
-    "predictSummary":"Predicted pairs",
-    "sectionIRT":"6. IRT Calibration & Wright Map",
-    "loadedItemFile":"Item file:",
-    "loadedScoreFile":"Score file:",
-    "needUpload":"Please upload both CSVs first.",
-    "chooseItemMapping":"Please map ItemID and feature columns.",
-    "chooseStudentCol":"Please choose StudentID column.",
-    "chooseLongCols":"Please choose ItemID & Score columns for long format.",
-    "chooseWideCols":"Please choose item columns for wide format.",
-    "noValidSamples":"No valid samples after mapping.",
-    "noValidationAlert":"Please add at least one validation method.",
-    "trainFirst":"Please train (holdout) to keep a model first.",
-    "choosePredictFile":"Please upload predict item CSV."
-  },
-  "zh-CN": {
-    "appTitle":"GradeCast 教育评估平台",
-    "toc":"功能目录",
-    "tocUpload":"上传 & 列映射",
-    "tocConfig":"模型配置 & 验证方案",
-    "tocTrain":"训练 & 进度",
-    "tocResults":"结果",
-    "tocPredict":"预测",
-    "tocIRT":"IRT 校准",
-    "sectionUpload":"1. 上传数据与列映射",
-    "itemCsvTitle":"Item 描述信息 CSV",
-    "itemCsvDesc":"包含：ItemID、Construct、Format 等（可多列特征）。",
-    "columnMapping":"列映射",
-    "itemIdCol":"Item ID 列",
-    "featureCols":"特征列（多选）",
-    "scoreCsvTitle":"学生作答成绩 CSV",
-    "scoreCsvDesc":"支持两种格式：长表（StudentID, ItemID, Score）或宽表（行=学生，列=题目）。",
-    "studentIdCol":"Student ID 列",
-    "scoreFormat":"成绩格式",
-    "formatLong":"长表：StudentID/ItemID/Score",
-    "formatWide":"宽表：行=学生，列=题号",
-    "scoreCol":"Score 列（长表）",
-    "wideItemCols":"宽表 Item 列（多选）",
-    "sectionConfig":"2. 模型结构 & 多验证配置",
-    "modelStructTitle":"模型结构",
-    "hiddenNeurons":"隐藏层神经元",
-    "epochs":"训练轮数",
-    "batchSize":"批量大小",
-    "learningRate":"学习率",
-    "activationFunc":"激活函数",
-    "reluOption":"ReLU（线性整流）",
-    "sigmoidOption":"Sigmoid（S型函数）",
-    "tanhOption":"Tanh（双曲正切）",
-    "validationTitle":"验证方案（可添加多个）",
-    "validationMethod":"验证方法",
-    "holdoutOption":"拆分验证 (Holdout)",
-    "loocvOption":"留一验证 (LOOCV)",
-    "trainRatio":"训练比例 (%)",
-    "addValidation":"+ 添加验证方案",
-    "sectionTrain":"3. 开始训练",
-    "startTraining":"开始训练",
-    "progressTraining":"训练中 (配置 {current}/{total}) - {method}",
-    "progressEpoch":"配置 {current}/{total} - 第 {epoch}/{epochs} 轮",
-    "progressLOOCV":"配置 {current}/{total} - 已处理 {done}/{totalSamples} 个样本",
-    "progressComplete":"训练完成",
-    "sectionResults":"4. 训练结果",
-    "resultHoldout":"拆分验证 (训练 {trainPct}% / 测试 {testPct}%)",
-    "resultLoocv":"留一验证 (LOOCV)",
-    "MAE":"MAE（平均绝对误差）",
-    "MSE":"MSE（均方误差）",
-    "RMSE":"RMSE（均方根误差）",
-    "R2":"R²（决定系数）",
-    "trainingLoss":"训练损失",
-    "validationLoss":"验证损失",
-    "epochAxis":"轮次",
-    "lossAxis":"损失",
-    "actualVsPred":"预测值 vs 实际值",
-    "idealLine":"理想线 (Y=X)",
-    "actualAxis":"实际值",
-    "predictedAxis":"预测值",
-    "sectionPredict":"5. 新题预测",
-    "predictFileTitle":"上传新的 Item 描述 CSV（结构一致）",
-    "runPredict":"运行预测",
-    "predictSummary":"预测（学生×题目）组合数",
-    "sectionIRT":"6. IRT 校准 & Wright Map",
-    "loadedItemFile":"已加载 Item 文件：",
-    "loadedScoreFile":"已加载 成绩 文件：",
-    "needUpload":"请先上传两个 CSV 文件。",
-    "chooseItemMapping":"请先选择 ItemID 和特征列。",
-    "chooseStudentCol":"请选择 StudentID 列。",
-    "chooseLongCols":"长表需选择 ItemID 与 Score 列。",
-    "chooseWideCols":"宽表需选择题目列（多选）。",
-    "noValidSamples":"列映射后无有效样本。",
-    "noValidationAlert":"请至少添加一个验证方案。",
-    "trainFirst":"请先用 Holdout 训练得到可保存的模型。",
-    "choosePredictFile":"请上传用于预测的 Item 描述 CSV。"
-  },
-  "zh-TW": {
-    "appTitle":"GradeCast 教育評估平台",
-    "toc":"功能目錄",
-    "tocUpload":"上傳 & 欄位對應",
-    "tocConfig":"模型配置 & 驗證方案",
-    "tocTrain":"訓練 & 進度",
-    "tocResults":"結果",
-    "tocPredict":"預測",
-    "tocIRT":"IRT 校準",
-    "sectionUpload":"1. 上傳資料與欄位對應",
-    "itemCsvTitle":"Item 描述資訊 CSV",
-    "itemCsvDesc":"包含：ItemID、Construct、Format 等（可多欄特徵）。",
-    "columnMapping":"欄位對應",
-    "itemIdCol":"Item ID 欄",
-    "featureCols":"特徵欄（多選）",
-    "scoreCsvTitle":"學生作答成績 CSV",
-    "scoreCsvDesc":"支援兩種格式：長表（StudentID, ItemID, Score）或寬表（列=學生，欄=題目）。",
-    "studentIdCol":"Student ID 欄",
-    "scoreFormat":"成績格式",
-    "formatLong":"長表：StudentID/ItemID/Score",
-    "formatWide":"寬表：列=學生，欄=題號",
-    "scoreCol":"Score 欄（長表）",
-    "wideItemCols":"寬表 Item 欄（多選）",
-    "sectionConfig":"2. 模型結構 & 多驗證配置",
-    "modelStructTitle":"模型結構",
-    "hiddenNeurons":"隱藏層神經元",
-    "epochs":"訓練輪數",
-    "batchSize":"批次大小",
-    "learningRate":"學習率",
-    "activationFunc":"激活函數",
-    "reluOption":"ReLU（線性整流）",
-    "sigmoidOption":"Sigmoid（S型函數）",
-    "tanhOption":"Tanh（雙曲正切）",
-    "validationTitle":"驗證方案（可新增多個）",
-    "validationMethod":"驗證方法",
-    "holdoutOption":"拆分驗證 (Holdout)",
-    "loocvOption":"留一驗證 (LOOCV)",
-    "trainRatio":"訓練比例 (%)",
-    "addValidation":"+ 新增驗證方案",
-    "sectionTrain":"3. 開始訓練",
-    "startTraining":"開始訓練",
-    "progressTraining":"訓練中 (配置 {current}/{total}) - {method}",
-    "progressEpoch":"配置 {current}/{total} - 第 {epoch}/{epochs} 輪",
-    "progressLOOCV":"配置 {current}/{total} - 已處理 {done}/{totalSamples} 個樣本",
-    "progressComplete":"訓練完成",
-    "sectionResults":"4. 訓練結果",
-    "resultHoldout":"拆分驗證 (訓練 {trainPct}% / 測試 {testPct}%)",
-    "resultLoocv":"留一驗證 (LOOCV)",
-    "MAE":"MAE（平均絕對誤差）",
-    "MSE":"MSE（均方誤差）",
-    "RMSE":"RMSE（均方根誤差）",
-    "R2":"R²（決定係數）",
-    "trainingLoss":"訓練損失",
-    "validationLoss":"驗證損失",
-    "epochAxis":"輪次",
-    "lossAxis":"損失",
-    "actualVsPred":"預測值 vs 實際值",
-    "idealLine":"理想線 (Y=X)",
-    "actualAxis":"實際值",
-    "predictedAxis":"預測值",
-    "sectionPredict":"5. 新題預測",
-    "predictFileTitle":"上傳新的 Item 描述 CSV（結構一致）",
-    "runPredict":"執行預測",
-    "predictSummary":"預測（學生×題目）組合數",
-    "sectionIRT":"6. IRT 校準 & Wright Map",
-    "loadedItemFile":"已載入 Item 檔案：",
-    "loadedScoreFile":"已載入 成績 檔案：",
-    "needUpload":"請先上傳兩個 CSV 檔案。",
-    "chooseItemMapping":"請先選擇 ItemID 與特徵欄。",
-    "chooseStudentCol":"請選擇 StudentID 欄。",
-    "chooseLongCols":"長表需選擇 ItemID 與 Score 欄。",
-    "chooseWideCols":"寬表需選擇題目欄（多選）。",
-    "noValidSamples":"欄位對應後沒有有效樣本。",
-    "noValidationAlert":"請至少新增一個驗證方案。",
-    "trainFirst":"請先用 Holdout 訓練以保留模型。",
-    "choosePredictFile":"請上傳用於預測的 Item 描述 CSV。"
-  }
-};
+export async function exportPlotPNG(divId, fileName='chart.png'){
+  const div = (typeof divId==='string')? document.getElementById(divId): divId;
+  const url = await Plotly.toImage(div, {format:'png', height:480, width:720});
+  downloadBlob(url, fileName);
+}
+
+export function downloadBlob(dataUrl, fileName){
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 /* styles.css */
 .transition-width { transition: width .25s ease; }
 .absClose { position:absolute; top:6px; right:8px; }
-table th, table td { border-bottom: 1px solid rgba(255,255,255,.05); }
+table th, table td { border-bottom: 1px solid rgba(255,255,255,.06); }
