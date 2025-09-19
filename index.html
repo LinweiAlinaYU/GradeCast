@@ -31,12 +31,15 @@
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
   <!-- Header -->
-  <header class="px-6 py-4 bg-gray-800 flex items-center justify-between">
-    <h1 class="text-xl font-bold" data-i18n="appTitle">GradeCast Educational Assessment Predictor (ANN+IRT)</h1>
-    <div class="flex items-center gap-3">
-      </select>
-    </div>
-  </header>
+<header class="bg-gray-800">
+  <!-- 新增這一層：最大寬度 + 自動左右外邊距 + flex 垂直置中 -->
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-center">
+    <h1 class="text-xl font-bold" data-i18n="appTitle">
+      GradeCast Educational Assessment Predictor (ANN+IRT)
+    </h1>
+    <!-- 如果右邊還需要語言下拉，放在同一 flex 裏但用 absolute/translateX 也可 -->
+  </div>
+</header>
 
   <main class="p-6 space-y-8">
     <!-- TOC -->
