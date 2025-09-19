@@ -4,6 +4,8 @@ Upload your student-item response data, train neural networks entirely in-browse
 
 **Features:** CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
 
+By Linwei Yu (linweiyu@connect.hku.hk)
+
 ---
 
 ## Table of Contents
