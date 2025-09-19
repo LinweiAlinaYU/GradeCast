@@ -1,39 +1,38 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GradeCast</title>
 
-  <!-- Tailwind（CDN开发模式） -->
+  <!-- Favicon: little whale 🐳 -->
+  <link rel="icon" type="image/svg+xml"
+        href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text y="90" font-size="90">🐳</text></svg>'/>
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
-      theme: {
-        extend: {
-          colors: { primary:'#3b82f6' }
-        }
-      }
+      theme: { extend: { colors: { primary:'#3b82f6' } } }
     }
   </script>
 
-  <!-- 第三方库 -->
+  <!-- Libs -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 
-  <!-- 自有样式与脚本 -->
-  <link rel="stylesheet" href="styles.css" />
+  <!-- App -->
+  <link rel="stylesheet" href="styles.css"/>
   <script defer src="languages.js"></script>
   <script defer src="charts.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
-
-  <!-- 顶栏 -->
+  <!-- Header -->
   <header class="px-6 py-4 bg-gray-800 flex items-center justify-between">
-    <h1 class="text-xl font-bold" data-i18n="appTitle">GradeCast 教育评估平台</h1>
+    <h1 class="text-xl font-bold" data-i18n="appTitle">GradeCast Educational Assessment Platform</h1>
     <div class="flex items-center gap-3">
       <select id="langSelect" class="bg-gray-700 border border-gray-600 rounded px-2 py-1">
         <option value="en">English</option>
@@ -44,157 +43,161 @@
   </header>
 
   <main class="p-6 space-y-8">
-
-    <!-- 目录 -->
+    <!-- TOC -->
     <nav class="bg-gray-800 border border-gray-700 rounded p-4">
-      <h2 class="font-semibold mb-2" data-i18n="toc">功能目录</h2>
+      <h2 class="font-semibold mb-2" data-i18n="toc">Contents</h2>
       <ol class="list-decimal ml-6 space-y-1 text-sm text-gray-300">
-        <li><a href="#upload" class="hover:underline" data-i18n="tocUpload">上传 & 列映射</a></li>
-        <li><a href="#config" class="hover:underline" data-i18n="tocConfig">模型配置 & 验证方案</a></li>
-        <li><a href="#train" class="hover:underline" data-i18n="tocTrain">训练 & 实时进度</a></li>
-        <li><a href="#results" class="hover:underline" data-i18n="tocResults">结果指标与图表</a></li>
-        <li><a href="#predict" class="hover:underline" data-i18n="tocPredict">新题预测</a></li>
-        <li><a href="#irt" class="hover:underline" data-i18n="tocIRT">IRT 校准 & Wright Map</a></li>
+        <li><a href="#upload" class="hover:underline" data-i18n="tocUpload">Upload & Mapping</a></li>
+        <li><a href="#features" class="hover:underline" data-i18n="tocFeatureSel">Feature Selection</a></li>
+        <li><a href="#config" class="hover:underline" data-i18n="tocConfig">Model Config & Validation</a></li>
+        <li><a href="#train" class="hover:underline" data-i18n="tocTrain">Training & Progress</a></li>
+        <li><a href="#results" class="hover:underline" data-i18n="tocResults">Results</a></li>
+        <li><a href="#predict" class="hover:underline" data-i18n="tocPredict">Prediction</a></li>
+        <li><a href="#irt" class="hover:underline" data-i18n="tocIRT">IRT Calibration</a></li>
       </ol>
     </nav>
 
-    <!-- 上传与列映射 -->
+    <!-- Upload -->
     <section id="upload" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionUpload">1. 上传数据与列映射</h2>
+      <h2 class="text-lg font-semibold" data-i18n="sectionUpload">1. Upload & Column Mapping</h2>
 
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <!-- Item CSV -->
         <div class="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">Item 描述信息 CSV</h3>
+          <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">Item Descriptive CSV</h3>
           <input id="itemFile" type="file" accept=".csv" class="w-full"/>
           <p class="text-sm text-gray-400 mt-1" data-i18n="itemCsvDesc">
-            包含：ItemID、Construct、Format 等（可有多列特征）。
+            Include: ItemID, Construct, Format ... (any columns you want).
           </p>
 
           <div id="itemMapping" class="mt-4 hidden">
-            <h4 class="font-medium mb-2" data-i18n="columnMapping">列映射</h4>
+            <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label class="text-sm">
-                <span data-i18n="itemIdCol">Item ID 列</span>
+                <span data-i18n="itemIdCol">Item ID Column</span>
                 <select id="itemIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
-              </label>
-              <label class="text-sm">
-                <span data-i18n="featureCols">特征列（多选）</span>
-                <select id="featureColsSelect" multiple size="6" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
               </label>
             </div>
           </div>
         </div>
 
-        <!-- 成绩 CSV -->
+        <!-- Score CSV -->
         <div class="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">学生作答成绩 CSV</h3>
+          <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">Student Responses CSV</h3>
           <input id="scoreFile" type="file" accept=".csv" class="w-full"/>
           <p class="text-sm text-gray-400 mt-1" data-i18n="scoreCsvDesc">
-            支持两种格式：①长表（列：StudentID, ItemID, Score）②宽表（每行一个学生，多列为各题分）。
+            Long: (StudentID, ItemID, Score). Wide: row=student, columns=items.
           </p>
 
           <div id="scoreMapping" class="mt-4 hidden">
-            <h4 class="font-medium mb-2" data-i18n="columnMapping">列映射</h4>
+            <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label class="text-sm">
-                <span data-i18n="studentIdCol">Student ID 列</span>
+                <span data-i18n="studentIdCol">Student ID Column</span>
                 <select id="studentIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
               </label>
               <label class="text-sm">
-                <span data-i18n="scoreFormat">成绩格式</span>
+                <span data-i18n="scoreFormat">Score Format</span>
                 <select id="scoreFormatSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
-                  <option value="long" data-i18n="formatLong">长表：StudentID/ItemID/Score</option>
-                  <option value="wide" data-i18n="formatWide">宽表：行=学生，列=题号</option>
+                  <option value="long" data-i18n="formatLong">Long: StudentID/ItemID/Score</option>
+                  <option value="wide" data-i18n="formatWide">Wide: row=student, cols=items</option>
                 </select>
               </label>
               <label class="text-sm">
-                <span data-i18n="itemIdCol">Item ID 列（长表）</span>
+                <span data-i18n="itemIdCol">Item ID Column (Long)</span>
                 <select id="scoreItemIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
               </label>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <label class="text-sm">
-                <span data-i18n="scoreCol">Score 列（长表）</span>
+                <span data-i18n="scoreCol">Score Column (Long)</span>
                 <select id="scoreValueSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
               </label>
               <label class="text-sm">
-                <span data-i18n="wideItemCols">宽表 Item 列（多选）</span>
+                <span data-i18n="wideItemCols">Wide Item Columns (multi-select)</span>
                 <select id="wideItemColsSelect" multiple size="6" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
               </label>
             </div>
           </div>
         </div>
       </div>
+      <div class="text-xs text-gray-400">
+        <span data-i18n="loadedItemFile">Item file:</span> <span id="itemFileName">-</span> |
+        <span data-i18n="loadedScoreFile">Score file:</span> <span id="scoreFileName">-</span>
+      </div>
     </section>
 
-    <!-- 模型配置 -->
-    <section id="config" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionConfig">2. 模型结构 & 多验证配置</h2>
+    <!-- Feature Selection -->
+    <section id="features" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionFeatures">2. Feature Selection (for ANN)</h2>
+      <div class="bg-gray-800 border border-gray-700 rounded p-4">
+        <p class="text-sm text-gray-400" data-i18n="featureHint">
+          Choose which columns from the Item CSV participate in the model, and set encoding type.
+        </p>
+        <div id="featureList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
+      </div>
+    </section>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Model Config -->
+    <section id="config" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionConfig">3. Model Structure & Validation</h2>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Multi hidden layers -->
         <div class="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 class="font-semibold mb-3" data-i18n="modelStructTitle">模型结构</h3>
-          <div class="space-y-3">
-            <label class="block text-sm">
-              <span data-i18n="hiddenNeurons">隐藏层神经元</span>
-              <input id="neuronsInput" type="number" value="16" min="1"
-                     class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
-            </label>
-            <label class="block text-sm">
-              <span data-i18n="epochs">训练轮数</span>
-              <input id="epochsInput" type="number" value="100" min="1"
-                     class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
-            </label>
-            <label class="block text-sm">
-              <span data-i18n="batchSize">批量大小</span>
+          <h3 class="font-semibold mb-2" data-i18n="modelStructTitle">Model Structure</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="text-sm">
+              <span data-i18n="batchSize">Batch Size</span>
               <input id="batchSizeInput" type="number" value="32" min="1"
                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
             </label>
-            <label class="block text-sm">
-              <span data-i18n="learningRate">学习率</span>
+            <label class="text-sm">
+              <span data-i18n="learningRate">Learning Rate</span>
               <input id="learningRateInput" type="number" step="0.0001" value="0.001"
                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
             </label>
-            <label class="block text-sm">
-              <span data-i18n="activationFunc">激活函数</span>
-              <select id="activationSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
-                <option value="relu" data-i18n="reluOption">ReLU（线性整流）</option>
-                <option value="sigmoid" data-i18n="sigmoidOption">Sigmoid（S型函数）</option>
-                <option value="tanh" data-i18n="tanhOption">Tanh（双曲正切）</option>
-              </select>
+            <label class="text-sm">
+              <span data-i18n="epochs">Epochs</span>
+              <input id="epochsInput" type="number" value="120" min="1"
+                     class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
             </label>
+          </div>
+
+          <div class="mt-4">
+            <h4 class="font-medium mb-2" data-i18n="hiddenLayers">Hidden Layers</h4>
+            <div id="layersBox" class="space-y-2"></div>
+            <button id="addLayerBtn" class="mt-2 bg-primary hover:bg-blue-700 px-3 py-1 rounded text-sm" data-i18n="addLayer">+ Add Layer</button>
           </div>
         </div>
 
+        <!-- Validation -->
         <div class="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 class="font-semibold mb-3" data-i18n="validationTitle">验证方案（可添加多个）</h3>
+          <h3 class="font-semibold mb-2" data-i18n="validationTitle">Validation Configs (add more)</h3>
           <div id="validationList" class="flex flex-wrap gap-3">
-            <!-- 初始方案 -->
-            <div class="relative p-3 border border-gray-600 rounded min-w-[250px]">
-              <button type="button" class="absClose hidden">×</button>
+            <div class="relative p-3 border border-gray-600 rounded min-w-[260px]">
               <label class="block text-sm">
-                <span data-i18n="validationMethod">验证方法</span>
+                <span data-i18n="validationMethod">Validation Method</span>
                 <select class="methodSelect mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
-                  <option value="holdout" data-i18n="holdoutOption">拆分验证 (Holdout)</option>
-                  <option value="loocv" data-i18n="loocvOption">留一验证 (LOOCV)</option>
+                  <option value="holdout" data-i18n="holdoutOption">Holdout (Train/Test Split)</option>
+                  <option value="loocv" data-i18n="loocvOption">LOOCV (Leave-One-Out)</option>
                 </select>
               </label>
               <label class="block text-sm mt-2">
-                <span data-i18n="trainRatio">训练比例 (%)</span>
+                <span data-i18n="trainRatio">Train Ratio (%)</span>
                 <input class="ratioInput mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1" type="number" min="1" max="99" value="80"/>
               </label>
             </div>
           </div>
-          <button id="addValidationBtn" class="mt-3 bg-primary hover:bg-blue-700 px-3 py-1 rounded" data-i18n="addValidation">+ 添加验证方案</button>
+          <button id="addValidationBtn" class="mt-3 bg-primary hover:bg-blue-700 px-3 py-1 rounded text-sm" data-i18n="addValidation">+ Add Validation</button>
         </div>
       </div>
     </section>
 
-    <!-- 训练 -->
+    <!-- Train -->
     <section id="train" class="space-y-3">
-      <h2 class="text-lg font-semibold" data-i18n="sectionTrain">3. 开始训练</h2>
-      <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded" data-i18n="startTraining">开始训练</button>
+      <h2 class="text-lg font-semibold" data-i18n="sectionTrain">4. Start Training</h2>
+      <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded" data-i18n="startTraining">Start Training</button>
 
       <div id="progressSection" class="hidden">
         <div class="text-sm mb-1" id="progressText">...</div>
@@ -204,42 +207,43 @@
       </div>
     </section>
 
-    <!-- 结果 -->
+    <!-- Results -->
     <section id="results" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionResults">4. 训练结果</h2>
-      <div id="resultsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      <h2 class="text-lg font-semibold" data-i18n="sectionResults">5. Training Results</h2>
+      <div class="flex items-center gap-3">
+        <button id="exportTestBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportTestCSV">Export Test Predictions CSV</button>
+      </div>
+      <div id="resultsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-2"></div>
     </section>
 
-    <!-- 预测 -->
+    <!-- Predict -->
     <section id="predict" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionPredict">5. 新题预测</h2>
+      <h2 class="text-lg font-semibold" data-i18n="sectionPredict">6. Predict New Items</h2>
       <div class="bg-gray-800 border border-gray-700 rounded p-4 space-y-3">
         <div>
-          <label class="block text-sm font-medium" data-i18n="predictFileTitle">上传新的 Item 描述 CSV（结构一致）</label>
+          <label class="block text-sm font-medium" data-i18n="predictFileTitle">Upload new Item Descriptive CSV (same structure)</label>
           <input id="predictItemFile" type="file" accept=".csv" class="w-full"/>
         </div>
-        <button id="predictBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded" data-i18n="runPredict">运行预测</button>
+        <div class="flex items-center gap-3">
+          <button id="predictBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded" data-i18n="runPredict">Run Prediction</button>
+          <button id="exportPredictBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportPredictCSV">Export Prediction CSV</button>
+        </div>
         <div id="predictResults" class="mt-4"></div>
       </div>
     </section>
 
-    <!-- IRT 校准 -->
+    <!-- IRT -->
     <section id="irt" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionIRT">6. IRT 校准 & Wright Map</h2>
+      <h2 class="text-lg font-semibold" data-i18n="sectionIRT">7. IRT Calibration & Wright Map</h2>
       <div class="bg-gray-800 border border-gray-700 rounded p-4 space-y-4">
         <div id="irtSummary" class="text-sm"></div>
+        <div class="flex items-center gap-3">
+          <button id="exportIRTBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportIRTCSV">Export IRT Table CSV</button>
+        </div>
         <div id="wrightChart" class="w-full" style="height:420px;"></div>
         <div id="irtTableWrap" class="overflow-auto"></div>
       </div>
     </section>
-
   </main>
-
-  <!-- 底部：文件名显示与提示 -->
-  <footer class="px-6 py-4 text-xs text-gray-400">
-    <div><span data-i18n="loadedItemFile">已加载 Item 文件：</span><span id="itemFileName">-</span></div>
-    <div><span data-i18n="loadedScoreFile">已加载 成绩 文件：</span><span id="scoreFileName">-</span></div>
-  </footer>
-
 </body>
 </html>
