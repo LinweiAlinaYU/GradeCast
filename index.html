@@ -1,83 +1,249 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GradeCast</title>
-  <!-- 引入所需的第三方库 (使用CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.6.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
-  <script src="https://cdn.plot.ly/plotly-2.20.0.min.js"></script>
-  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Favicon: little whale 🐳 -->
+  <link rel="icon" type="image/svg+xml"
+        href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text y="90" font-size="90">🐳</text></svg>'/>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { colors: { primary:'#3b82f6' } } }
+    }
+  </script>
+
+  <!-- Libs -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
+  <!-- App -->
+  <link rel="stylesheet" href="styles.css"/>
+  <script defer src="languages.js"></script>
+  <script defer src="charts.js"></script>
+  <script defer src="app.js"></script>
 </head>
-<body>
-
-  <h1>GradeCast (ANN for Educational Measurement)</h1>
-
-  <section id="data-input" style="margin-bottom:20px;">
-    <h2>1. 上传训练数据 (CSV)</h2>
-    <input type="file" id="train-file-input" accept=".csv" />
-    <p>请上传包含学生历史作答记录的 CSV 文件。</p>
-
-    <h3>模型参数设置</h3>
-    <label>构念 (Construct) 列名: <input type="text" id="construct-col" value="Construct" /></label><br/>
-    <label>题目类型 (Item Format) 列名: <input type="text" id="format-col" value="ItemFormat" /></label><br/>
-    <label>得分/表现 (目标) 列名: <input type="text" id="score-col" value="Score" /></label><br/>
-
-    <label>隐藏层神经元数量: <input type="number" id="hidden-neurons" value="10" min="1" /></label><br/>
-    <label>Epoch 数: <input type="number" id="epoch-count" value="100" min="1" /></label><br/>
-    <label>激活函数: 
-      <select id="activation-fn">
-        <option value="relu" selected>ReLU</option>
-        <option value="sigmoid">Sigmoid</option>
-        <option value="tanh">Tanh</option>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  <!-- Header -->
+  <header class="px-6 py-4 bg-gray-800 flex items-center justify-between">
+    <h1 class="text-xl font-bold" data-i18n="appTitle">GradeCast Educational Assessment Platform</h1>
+    <div class="flex items-center gap-3">
+      <select id="langSelect" class="bg-gray-700 border border-gray-600 rounded px-2 py-1">
+        <option value="en">English</option>
+        <option value="zh-CN">简体中文</option>
+        <option value="zh-TW">繁體中文</option>
       </select>
-    </label><br/>
-    
-    <h3>验证方式</h3>
-    <label><input type="radio" name="validation-method" value="holdout" checked/> 使用训练/测试拆分 </label>
-    <label><input type="radio" name="validation-method" value="loocv" /> 使用留一交叉验证 (LOOCV)</label><br/>
-    <div id="holdout-config" style="margin-left:20px;">
-      <label>训练集比例: 
-        <input type="number" id="train-ratio" value="80" min="50" max="90" />%
-      </label>
     </div>
-    
-    <button id="train-button">开始训练模型</button>
-  </section>
+  </header>
 
-  <!-- 模型训练结果显示区域 -->
-  <section id="training-results" style="display:none;">
-    <h2>2. 模型训练结果</h2>
-    <div id="metrics-output">
+  <main class="p-6 space-y-8">
+    <!-- TOC -->
+    <nav class="bg-gray-800 border border-gray-700 rounded p-4">
+      <h2 class="font-semibold mb-2" data-i18n="toc">Contents</h2>
+      <ol class="list-decimal ml-6 space-y-1 text-sm text-gray-300">
+        <li><a href="#upload" class="hover:underline" data-i18n="tocUpload">Upload & Mapping</a></li>
+        <li><a href="#features" class="hover:underline" data-i18n="tocFeatureSel">Feature Selection</a></li>
+        <li><a href="#config" class="hover:underline" data-i18n="tocConfig">Model Config & Validation</a></li>
+        <li><a href="#train" class="hover:underline" data-i18n="tocTrain">Training & Progress</a></li>
+        <li><a href="#results" class="hover:underline" data-i18n="tocResults">Results</a></li>
+        <li><a href="#predict" class="hover:underline" data-i18n="tocPredict">Prediction</a></li>
+        <li><a href="#irt" class="hover:underline" data-i18n="tocIRT">IRT Calibration</a></li>
+      </ol>
+    </nav>
 
-    </div>
-    <div id="charts-output">
+    <!-- Upload -->
+    <section id="upload" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionUpload">1. Upload & Column Mapping</h2>
 
-      <div id="residual-chart" style="width:600px;height:400px;"></div>
-      <div id="rmse-student-chart" style="width:600px;height:400px;"></div>
-      <div id="rmse-format-chart" style="width:600px;height:400px;"></div>
-      <div id="bias-format-chart" style="width:600px;height:400px;"></div>
-    </div>
-  </section>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <!-- Item CSV -->
+        <div class="bg-gray-800 border border-gray-700 rounded p-4">
+          <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">Item Descriptive CSV</h3>
+          <input id="itemFile" type="file" accept=".csv" class="w-full"/>
+          <p class="text-sm text-gray-400 mt-1" data-i18n="itemCsvDesc">
+            Include: ItemID, Construct, Format ... (any columns you want).
+          </p>
 
-  <section id="prediction-section" style="display:none; margin-top:20px;">
-    <h2>3. 上传新数据进行预测</h2>
-    <input type="file" id="predict-file-input" accept=".csv" />
-    <p>上传包含要预测的学生-题目记录的CSV（无需实际成绩）。文件格式需与训练数据类似，包含学生、题目属性等列。</p>
-    <button id="predict-button">预测新题表现</button>
+          <div id="itemMapping" class="mt-4 hidden">
+            <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label class="text-sm">
+                <span data-i18n="itemIdCol">Item ID Column</span>
+                <select id="itemIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+              </label>
+            </div>
+          </div>
+        </div>
 
-    <div id="prediction-results" style="display:none;">
-      <h3>预测结果指标</h3>
-      <div id="prediction-metrics"></div>
-      <h3>Kidmap 热力图 (学生 vs 题目预测表现)</h3>
-      <div id="kidmap-chart" style="width:700px;height:500px;"></div>
-      <h3>Wright Map (题目参数图)</h3>
-      <div id="wright-chart" style="width:600px;height:400px;"></div>
-    </div>
-  </section>
+        <!-- Score CSV -->
+        <div class="bg-gray-800 border border-gray-700 rounded p-4">
+          <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">Student Responses CSV</h3>
+          <input id="scoreFile" type="file" accept=".csv" class="w-full"/>
+          <p class="text-sm text-gray-400 mt-1" data-i18n="scoreCsvDesc">
+            Long: (StudentID, ItemID, Score). Wide: row=student, columns=items.
+          </p>
 
-  <script src="js/app.js"></script>
-  <script src="js/charts.js"></script>
+          <div id="scoreMapping" class="mt-4 hidden">
+            <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label class="text-sm">
+                <span data-i18n="studentIdCol">Student ID Column</span>
+                <select id="studentIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+              </label>
+              <label class="text-sm">
+                <span data-i18n="scoreFormat">Score Format</span>
+                <select id="scoreFormatSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
+                  <option value="long" data-i18n="formatLong">Long: StudentID/ItemID/Score</option>
+                  <option value="wide" data-i18n="formatWide">Wide: row=student, cols=items</option>
+                </select>
+              </label>
+              <label class="text-sm">
+                <span data-i18n="itemIdCol">Item ID Column (Long)</span>
+                <select id="scoreItemIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+              </label>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+              <label class="text-sm">
+                <span data-i18n="scoreCol">Score Column (Long)</span>
+                <select id="scoreValueSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+              </label>
+              <label class="text-sm">
+                <span data-i18n="wideItemCols">Wide Item Columns (multi-select)</span>
+                <select id="wideItemColsSelect" multiple size="6" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="text-xs text-gray-400">
+        <span data-i18n="loadedItemFile">Item file:</span> <span id="itemFileName">-</span> |
+        <span data-i18n="loadedScoreFile">Score file:</span> <span id="scoreFileName">-</span>
+      </div>
+    </section>
+
+    <!-- Feature Selection -->
+    <section id="features" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionFeatures">2. Feature Selection (for ANN)</h2>
+      <div class="bg-gray-800 border border-gray-700 rounded p-4">
+        <p class="text-sm text-gray-400" data-i18n="featureHint">
+          Choose which columns from the Item CSV participate in the model, and set encoding type.
+        </p>
+        <div id="featureList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
+      </div>
+    </section>
+
+    <!-- Model Config -->
+    <section id="config" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionConfig">3. Model Structure & Validation</h2>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Multi hidden layers -->
+        <div class="bg-gray-800 border border-gray-700 rounded p-4">
+          <h3 class="font-semibold mb-2" data-i18n="modelStructTitle">Model Structure</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="text-sm">
+              <span data-i18n="batchSize">Batch Size</span>
+              <input id="batchSizeInput" type="number" value="32" min="1"
+                     class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
+            </label>
+            <label class="text-sm">
+              <span data-i18n="learningRate">Learning Rate</span>
+              <input id="learningRateInput" type="number" step="0.0001" value="0.001"
+                     class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
+            </label>
+            <label class="text-sm">
+              <span data-i18n="epochs">Epochs</span>
+              <input id="epochsInput" type="number" value="120" min="1"
+                     class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"/>
+            </label>
+          </div>
+
+          <div class="mt-4">
+            <h4 class="font-medium mb-2" data-i18n="hiddenLayers">Hidden Layers</h4>
+            <div id="layersBox" class="space-y-2"></div>
+            <button id="addLayerBtn" class="mt-2 bg-primary hover:bg-blue-700 px-3 py-1 rounded text-sm" data-i18n="addLayer">+ Add Layer</button>
+          </div>
+        </div>
+
+        <!-- Validation -->
+        <div class="bg-gray-800 border border-gray-700 rounded p-4">
+          <h3 class="font-semibold mb-2" data-i18n="validationTitle">Validation Configs (add more)</h3>
+          <div id="validationList" class="flex flex-wrap gap-3">
+            <div class="relative p-3 border border-gray-600 rounded min-w-[260px]">
+              <label class="block text-sm">
+                <span data-i18n="validationMethod">Validation Method</span>
+                <select class="methodSelect mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
+                  <option value="holdout" data-i18n="holdoutOption">Holdout (Train/Test Split)</option>
+                  <option value="loocv" data-i18n="loocvOption">LOOCV (Leave-One-Out)</option>
+                </select>
+              </label>
+              <label class="block text-sm mt-2">
+                <span data-i18n="trainRatio">Train Ratio (%)</span>
+                <input class="ratioInput mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1" type="number" min="1" max="99" value="80"/>
+              </label>
+            </div>
+          </div>
+          <button id="addValidationBtn" class="mt-3 bg-primary hover:bg-blue-700 px-3 py-1 rounded text-sm" data-i18n="addValidation">+ Add Validation</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Train -->
+    <section id="train" class="space-y-3">
+      <h2 class="text-lg font-semibold" data-i18n="sectionTrain">4. Start Training</h2>
+      <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded" data-i18n="startTraining">Start Training</button>
+
+      <div id="progressSection" class="hidden">
+        <div class="text-sm mb-1" id="progressText">...</div>
+        <div class="w-full bg-gray-700 rounded h-2">
+          <div id="progressBar" class="h-2 bg-green-500 rounded transition-width" style="width:0%"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section id="results" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionResults">5. Training Results</h2>
+      <div class="flex items-center gap-3">
+        <button id="exportTestBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportTestCSV">Export Test Predictions CSV</button>
+      </div>
+      <div id="resultsContainer" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-2"></div>
+    </section>
+
+    <!-- Predict -->
+    <section id="predict" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionPredict">6. Predict New Items</h2>
+      <div class="bg-gray-800 border border-gray-700 rounded p-4 space-y-3">
+        <div>
+          <label class="block text-sm font-medium" data-i18n="predictFileTitle">Upload new Item Descriptive CSV (same structure)</label>
+          <input id="predictItemFile" type="file" accept=".csv" class="w-full"/>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="predictBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded" data-i18n="runPredict">Run Prediction</button>
+          <button id="exportPredictBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportPredictCSV">Export Prediction CSV</button>
+        </div>
+        <div id="predictResults" class="mt-4"></div>
+      </div>
+    </section>
+
+    <!-- IRT -->
+    <section id="irt" class="space-y-4">
+      <h2 class="text-lg font-semibold" data-i18n="sectionIRT">7. IRT Calibration & Wright Map</h2>
+      <div class="bg-gray-800 border border-gray-700 rounded p-4 space-y-4">
+        <div id="irtSummary" class="text-sm"></div>
+        <div class="flex items-center gap-3">
+          <button id="exportIRTBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportIRTCSV">Export IRT Table CSV</button>
+        </div>
+        <div id="wrightChart" class="w-full" style="height:420px;"></div>
+        <div id="irtTableWrap" class="overflow-auto"></div>
+      </div>
+    </section>
+  </main>
 </body>
 </html>
