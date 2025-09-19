@@ -726,7 +726,7 @@ function phiCdf(z){
 /***** languages.js *****/
 const translations = {
   en: {
-    appTitle:"GradeCast Educational Assessment Platform",
+    appTitle:"GradeCast Educational Assessment Predictor (ANN+IRT)",
     toc:"Contents",
     tocUpload:"Upload & Mapping",
     tocFeatureSel:"Feature Selection",
@@ -806,7 +806,7 @@ const translations = {
     choosePredictFile:"Please upload predict item CSV."
   },
   "zh-CN": {
-    appTitle:"GradeCast 教育评估平台",
+    appTitle:"GradeCast 教育评估预测平台(ANN+IRT)",
     toc:"功能目录",
     tocUpload:"上传 & 列映射",
     tocFeatureSel:"特征选择",
@@ -886,7 +886,7 @@ const translations = {
     choosePredictFile:"请上传用于预测的 Item 描述 CSV。"
   },
   "zh-TW": {
-    appTitle:"GradeCast 教育評估平台",
+    appTitle:"GradeCast 教育評估預測平台(ANN+IRT)",
     toc:"功能目錄",
     tocUpload:"上傳 & 欄位對應",
     tocFeatureSel:"特徵選擇",
