@@ -4,7 +4,7 @@ Upload your student-item response data, train neural networks entirely in-browse
 
 **Features:** CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
 
-By Linwei Yu (The University of Hong Kong, linweiyu@connect.hku.hk)
+By **Linwei Yu** (The University of Hong Kong, linweiyu@connect.hku.hk)
 
 ---
 
@@ -21,7 +21,6 @@ By Linwei Yu (The University of Hong Kong, linweiyu@connect.hku.hk)
 - [Model & Validation](#model--validation)
 - [Prediction Workflow](#prediction-workflow)
 - [IRT Calibration](#irt-calibration)
-- [Internationalization (i18n)](#internationalization-i18n)
 - [Deploy to GitHub Pages](#deploy-to-github-pages)
 - [Troubleshooting](#troubleshooting)
 - [Security & Privacy](#security--privacy)
@@ -37,10 +36,10 @@ By Linwei Yu (The University of Hong Kong, linweiyu@connect.hku.hk)
 
 1. Upload **Item Descriptive** CSV (e.g., `ItemID`, `Construct`, `Format`, …) and **Student Responses** CSV.
 2. Map columns interactively (supports **Long** or **Wide** response format).
-3. Configure multiple ANN training setups and validation schemes (**Holdout / LOOCV**).
+3. Configure multiple** Artificial Neural Network (ANN)** training setups and validation schemes (**Holdout / LOOCV**).
 4. Train with **precise progress bars**.
 5. Use the **best model** to predict performance for **new items**.
-6. Run **IRT calibration** (lightweight Rasch approximation) and draw a **Wright Map**.
+6. Run **Rasch / Item Response Theory (IRT) calibration** (lightweight Rasch approximation) and draw a **Wright Map**.
 
 All computation happens locally via **TensorFlow.js**, **PapaParse**, **Plotly**, and **TailwindCSS**.
 
@@ -60,10 +59,13 @@ All computation happens locally via **TensorFlow.js**, **PapaParse**, **Plotly**
 
 /
 ├─ index.html # Main page (containers + CDN deps)
+
 ├─ app.js # Upload/mapping, training/validation, prediction, IRT, progress, i18n glue
+
 ├─ charts.js # Plotly charts: loss curve, actual-vs-pred, Wright Map
-├─ languages.js # i18n dictionaries (en / zh-CN / zh-TW)
+
 ├─ styles.css # Minimal extra CSS; Tailwind handles most styles
+
 └─ (CDN) # PapaParse / TensorFlow.js / Plotly / Tailwind loaded via CDN in index.html
 
 
@@ -243,14 +245,6 @@ Suitable for quick diagnostics; replace with JML/MML later if you need full pari
 For high-stakes calibration, consider server-side JML/MML or full Rasch packages.
 This module is designed for instant insight in the browser.
 
-## Internationalization (i18n)
-
-- Top-right selector: English / 简体中文 / 繁體中文.
-
-- All translatable text uses data-i18n keys bound to dictionaries in languages.js.
-
-- Switching language updates the DOM instantly (no page reload).
-
 ## Deploy to GitHub Pages
 
 1. Push the repository to GitHub.
@@ -301,7 +295,27 @@ Use the selector in the header; the change is instant and session-scoped.
 
 ## License
 
-MIT license
+MIT license.
+
+Copyright (c) 2025 Linwei YU
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## Acknowledgments
 
