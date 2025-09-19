@@ -1,6 +1,6 @@
-# GradeCast — Educational Measurement Prediction Platform (ANN Prediction + IRT Calibration)
+# GradeCast — AI-powered Assessment Insight Platform (Artificial Neural Network Prediction ＋ Rasch Diagnostics)
 
-Open-source platform for educators to upload student–item CSVs, **train & tune** browser-side **ANN** models (TensorFlow.js) with **hold-out** or **LOOCV** validation, and visualize **Rasch/IRT** diagnostics (**Wright map**, **Infit/Outfit**).
+Upload your student-item response data, train neural networks entirely in-browser with TensorFlow.js (hold-out / LOOCV), and instantly explore Rasch/IRT analytics—including Wright maps and Infit/Outfit fit statistics—-all in an open-source, privacy-first workflow.
 
 **Features:** CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
 
