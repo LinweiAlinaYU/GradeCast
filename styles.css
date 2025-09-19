@@ -1,4 +1,4 @@
 /* styles.css */
 .transition-width { transition: width .25s ease; }
 .absClose { position:absolute; top:6px; right:8px; }
-table th, table td { border-bottom: 1px solid rgba(255,255,255,.05); }
+table th, table td { border-bottom: 1px solid rgba(255,255,255,.06); }
