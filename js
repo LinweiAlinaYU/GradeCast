@@ -70,6 +70,9 @@ const irtSummary = $('#irtSummary');
 const irtTableWrap = $('#irtTableWrap');
 const exportIRTBtn = $('#exportIRTBtn');
 
+const itemStatus  = document.getElementById('itemStatus');
+const scoreStatus = document.getElementById('scoreStatus');
+
 // ---------- state ----------
 let itemRows=[], itemHeaders=[];
 let scoreRows=[], scoreHeaders=[];
@@ -115,29 +118,88 @@ function show(el){ el.classList.remove('hidden'); }
 function hide(el){ el.classList.add('hidden'); }
 
 // ---------- read files ----------
-itemFileInput.addEventListener('change', e=>{
-  const f=e.target.files[0]; if(!f) return;
-  $('#itemFileName').textContent=f.name;
-  parseCSV(f,(headers,rows)=>{
-    itemHeaders=headers; itemRows=rows;
-    fillSelectOptions(itemIdSelect, headers);
-    show(itemMapDiv);
-    // build feature selection cards (default all categorical)
-    buildFeatureCards(headers);
+// 全局加载状态
+let itemLoaded=false, scoreLoaded=false;
+
+function handleCSV(file, type){
+  // 0) 开始解析：先给出 ⏳
+  const tgt = (type==='item') ? itemStatus : scoreStatus;
+  tgt.textContent = '⏳';
+  tgt.className   = 'ml-2 text-yellow-300 align-middle';
+
+  parseCSV(file,(headers,rows)=>{
+    // 1) 解析成功 → ✅
+    tgt.textContent = '✅';
+    tgt.className   = 'ml-2 text-green-400 align-middle';
+
+    if(type==='item'){
+      itemHeaders=headers; itemRows=rows; itemLoaded=true;
+      $('#itemFileName').textContent=file.name;
+      fillSelectOptions(itemIdSelect, headers);
+      show(itemMapDiv);
+      buildFeatureCards(headers);
+    }else{
+      scoreHeaders=headers; scoreRows=rows; scoreLoaded=true;
+      $('#scoreFileName').textContent=file.name;
+      fillSelectOptions(studentIdSelect, headers);
+      fillSelectOptions(scoreItemIdSelect, headers);
+      fillSelectOptions(scoreValueSelect, headers);
+      fillMultiSelect(wideItemColsSelect, headers);
+      show(scoreMapDiv);
+    }
+    unlockSections();
+
+  }, (errMsg)=>{
+    // 2) 解析失败 → ❌
+    tgt.textContent = '❌';
+    tgt.className   = 'ml-2 text-red-500 align-middle';
+    alert('CSV parse error: '+errMsg);
   });
+}
+    // 日志或 UI 提示
+    console.info(`[${type}] CSV parsed:`, rows.length, 'rows');
+
+    unlockSections();
+  }, (errText)=>{
+    alert('CSV parse error:\n'+errText);
+  });
+}
+
+// 修改 parseCSV：失败时回调 onError
+function parseCSV(file, onComplete, onError){
+  Papa.parse(file,{
+    header:true, dynamicTyping:true, skipEmptyLines:true,
+    complete:(res)=>{
+      if(res.errors && res.errors.length){
+        console.error(res.errors);
+        onError?.(res.errors[0].message || 'Unknown');
+      }else{
+        onComplete(res.meta.fields||[], res.data||[]);
+      }
+    }
+  });
+}
+
+// 绑定事件
+itemFileInput.addEventListener('change', e=>{
+  const f=e.target.files[0];
+  if(f) handleCSV(f,'item');
 });
 scoreFileInput.addEventListener('change', e=>{
-  const f=e.target.files[0]; if(!f) return;
-  $('#scoreFileName').textContent=f.name;
-  parseCSV(f,(headers,rows)=>{
-    scoreHeaders=headers; scoreRows=rows;
-    fillSelectOptions(studentIdSelect, headers);
-    fillSelectOptions(scoreItemIdSelect, headers);
-    fillSelectOptions(scoreValueSelect, headers);
-    fillMultiSelect(wideItemColsSelect, headers);
-    show(scoreMapDiv);
-  });
+  const f=e.target.files[0];
+  if(f) handleCSV(f,'score');
 });
+
+// 上传完两边文件后解锁
+function unlockSections(){
+  if(itemLoaded && scoreLoaded){
+    ['featuresWrap','configWrap','trainWrap','resultsWrap','predictWrap','irtWrap']
+      .forEach(id=>{
+        const el=document.getElementById(id);
+        el?.classList.remove('opacity-50','pointer-events-none');
+      });
+  }
+}
 
 // ---------- Feature selection UI ----------
 function buildFeatureCards(headers){
@@ -552,7 +614,7 @@ predictBtn.addEventListener('click', ()=>{
     predictResultsDiv.appendChild(tbl);
 
     // IRT with stricter JML
-    runIRT_JML_fromPairs(predicts);
+    runIRT_JML_fromPairs_poly(predicts);
   });
 });
 exportPredictBtn.addEventListener('click', ()=>{
@@ -562,167 +624,210 @@ exportPredictBtn.addEventListener('click', ()=>{
   downloadBlob(blob, 'predictions.csv');
 });
 
-// ---------- IRT (Stricter: JML / Fisher Scoring) ----------
-function runIRT_JML_fromPairs(pairs){
-  // y 使用预测概率映射到 [0,1]，如果你有真实0/1可直接替换
+// ---------- IRT ----------
+function categoryProbs(theta, beta, deltaArr, m, model){
+  // m = 最大得分；deltaArr 长度≥m
+  const s=[];
+  for(let k=0;k<=m;k++){
+    let logit=k*(theta-beta);
+    if(k>0){
+      const sumΔ=deltaArr.slice(0,k).reduce((a,x)=>a+x,0);
+      logit-=sumΔ;                // PCM / RSM 共式
+    }
+    s[k]=Math.exp(logit);
+  }
+  const Z=s.reduce((a,x)=>a+x,0);
+  return s.map(x=>x/Z);
+}
+
+function phiCdf(z){              // 标准正态 CDF
+  const t=1/(1+0.2316419*Math.abs(z));
+  const d=Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
+  const p=1-d*(0.319381530*t-0.356563782*t**2+1.781477937*t**3-1.821255978*t**4+1.330274429*t**5);
+  return z>=0?p:1-p;
+}
+
+function runIRT_JML_fromPairs_poly(pairs){
+  const modelType=document.getElementById('irtModelSelect').value; // 'pcm' | 'rsm'
+
   const students=[...new Set(pairs.map(p=>p.student))];
-  const items=[...new Set(pairs.map(p=>p.item))];
+  const items   =[...new Set(pairs.map(p=>p.item))];
 
-  // scale predictions to [0,1]
-  let pMin=Math.min(...pairs.map(p=>p.pred)), pMax=Math.max(...pairs.map(p=>p.pred));
-  if (pMax===pMin) pMax=pMin+1e-6;
-  pairs.forEach(p=> p.y=(p.pred-pMin)/(pMax-pMin));
+  // 每题最大类别
+  const stepsByItem={};
+  items.forEach(it=>{
+    stepsByItem[it]=Math.max(...pairs.filter(p=>p.item===it).map(p=>p.score));
+  });
+  const maxSteps=Math.max(...Object.values(stepsByItem));
 
-  // init
+  // 参数
   const theta=Object.fromEntries(students.map(s=>[s,0]));
-  const b=Object.fromEntries(items.map(it=>[it,0]));
-  const maxIter=80, tol=1e-4;
+  const beta =Object.fromEntries(items.map(it=>[it,0]));
+  let delta_rsm=Array.from({length:maxSteps},()=>0);
+  let delta_pcm={}; items.forEach(it=>delta_pcm[it]=Array.from({length:stepsByItem[it]},()=>0));
 
-  function prob(s,it){ return 1/(1+Math.exp(-(theta[s]-b[it]))); }
+  // ---------- JML 迭代 ----------
+  const maxIter=100,tol=1e-4;
+  for(let iter=0;iter<maxIter;iter++){
+    let maxΔ=0;
 
-  // Alternate Fisher Scoring for persons and items
-  for (let t=0;t<maxIter;t++){
-    let maxDelta=0;
-
-    // update theta (persons)
+    // -- 更新 θ
     students.forEach(s=>{
-      let grad=0, info=0;
+      let g=0,I=0;
       pairs.filter(p=>p.student===s).forEach(p=>{
-        const pr=prob(s,p.item);
-        grad += (p.y - pr);
-        info += pr*(1-pr);
+        const m=stepsByItem[p.item];
+        const pr=categoryProbs(theta[s],beta[p.item],
+                               modelType==='pcm'?delta_pcm[p.item]:delta_rsm,
+                               m,modelType);
+        const Ex = pr.reduce((a,pj,j)=>a+j*pj,0);
+        const Var= pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0);
+        g += (p.score-Ex);
+        I += Var;
       });
-      if (info>1e-8){
-        const delta = grad/info;
-        theta[s] += delta;
-        maxDelta = Math.max(maxDelta, Math.abs(delta));
-      }
+      if(I>1e-6){ const d=g/I; theta[s]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
     });
+    const mθ=students.reduce((a,s)=>a+theta[s],0)/students.length;
+    students.forEach(s=>theta[s]-=mθ);
 
-    // center thetas to avoid drift
-    const meanTheta = students.reduce((a,s)=>a+theta[s],0)/students.length;
-    students.forEach(s=> theta[s]-=meanTheta);
-
-    // update items
+    // -- 更新 β
     items.forEach(it=>{
-      let grad=0, info=0;
+      let g=0,I=0;
       pairs.filter(p=>p.item===it).forEach(p=>{
-        const pr=prob(p.student,it);
-        grad += -(p.y - pr);
-        info += pr*(1-pr);
+        const m=stepsByItem[it];
+        const pr=categoryProbs(theta[p.student],beta[it],
+                               modelType==='pcm'?delta_pcm[it]:delta_rsm,
+                               m,modelType);
+        const Ex = pr.reduce((a,pj,j)=>a+j*pj,0);
+        const Var= pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0);
+        g += -(p.score-Ex);
+        I += Var;
       });
-      if (info>1e-8){
-        const delta = grad/info;
-        b[it] += delta;
-        maxDelta = Math.max(maxDelta, Math.abs(delta));
-      }
+      if(I>1e-6){ const d=g/I; beta[it]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
     });
+    const mβ=items.reduce((a,it)=>a+beta[it],0)/items.length;
+    items.forEach(it=>beta[it]-=mβ);
 
-    // center items (sum b ~ 0)
-    const meanB = items.reduce((a,it)=>a+b[it],0)/items.length;
-    items.forEach(it=> b[it]-=meanB);
+    // -- 更新 δ
+    if(modelType==='pcm'){
+      items.forEach(it=>{
+        for(let k=0;k<stepsByItem[it];k++){
+          let g=0,I=0;
+          pairs.filter(p=>p.item===it).forEach(p=>{
+            const m=stepsByItem[it], δ=delta_pcm[it];
+            const pr=categoryProbs(theta[p.student],beta[it],δ,m,'pcm');
+            const Pk =pr[k], Pk1=pr[k+1];
+            g += ((p.score>k?1:0)-Pk1/(Pk+Pk1));
+            I += (Pk*Pk1)/(Pk+Pk1)**2;
+          });
+          if(I>1e-6){ const d=g/I; delta_pcm[it][k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
+        }
+        const μ=delta_pcm[it].reduce((a,x)=>a+x,0)/delta_pcm[it].length;
+        delta_pcm[it]=delta_pcm[it].map(d=>d-μ);
+      });
+    }else{ // RSM
+      for(let k=0;k<maxSteps;k++){
+        let g=0,I=0;
+        pairs.forEach(p=>{
+          const m=stepsByItem[p.item]; if(k>=m) return;
+          const pr=categoryProbs(theta[p.student],beta[p.item],delta_rsm,m,'rsm');
+          const Pk=pr[k], Pk1=pr[k+1];
+          g += ((p.score>k?1:0)-Pk1/(Pk+Pk1));
+          I += (Pk*Pk1)/(Pk+Pk1)**2;
+        });
+        if(I>1e-6){ const d=g/I; delta_rsm[k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
+      }
+      const μ=delta_rsm.reduce((a,x)=>a+x,0)/delta_rsm.length;
+      delta_rsm=delta_rsm.map(d=>d-μ);
+    }
 
-    if (maxDelta < tol) break;
+    if(maxΔ<tol) break;
   }
 
-  // Fit statistics
+  // ---------- 计算 Infit / Outfit ----------
   const statsByItem={};
-  items.forEach(it=> statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
+  items.forEach(it=>statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
+
   pairs.forEach(p=>{
-    const pr=prob(p.student,p.item);
-    const varp = Math.max(pr*(1-pr), 1e-8);
-    const z = (p.y - pr)/Math.sqrt(varp);
-    statsByItem[p.item].sumZ2 += z*z;           // Outfit numerator
-    statsByItem[p.item].sumZ2w += varp * z*z;   // Infit numerator (weighted)
-    statsByItem[p.item].sumW += varp;
-    statsByItem[p.item].count++;
+    const m=stepsByItem[p.item];
+    const pr = categoryProbs(theta[p.student],beta[p.item],
+                             modelType==='pcm'?delta_pcm[p.item]:delta_rsm,
+                             m,modelType);
+    const Ex  = pr.reduce((a,pj,j)=>a+j*pj,0);
+    const Var = pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0);
+    const z   = (p.score-Ex)/Math.sqrt(Var||1e-8);
+
+    const s=statsByItem[p.item];
+    s.sumZ2  += z*z;
+    s.sumZ2w += Var*z*z;
+    s.sumW   += Var;
+    s.count++;
   });
 
-  const rows=[];
+  const itemsRows=[];
   items.forEach(it=>{
-    const s=statsByItem[it], n=Math.max(1,s.count);
+    const s=statsByItem[it]; const n=s.count||1;
     const outfit = s.sumZ2/n;
-    const infit  = (s.sumW>0)? s.sumZ2w/s.sumW : s.sumZ2/n;
-    const tZ = 0; // 严格的标准化t可用更复杂公式，这里给出近似为0均值
-    const pVal=(z)=>2*(1-phiCdf(Math.abs(z)));
-    rows.push({
-      Item: it,
-      Outfit:+outfit.toFixed(2),
-      Outfit_t:+tZ.toFixed(2),
-      Outfit_p:+pVal(tZ).toFixed(2),
-      Infit:+infit.toFixed(2),
-      Infit_t:+tZ.toFixed(2),
-      Infit_p:+pVal(tZ).toFixed(2)
+    const infit  = s.sumW>0? s.sumZ2w/s.sumW : outfit;
+    const tZ=0, pVal=(z)=>2*(1-phiCdf(Math.abs(z)));
+    itemsRows.push({
+      Item:it,
+      Outfit:+outfit.toFixed(2), Outfit_t:+tZ.toFixed(2), Outfit_p:+pVal(tZ).toFixed(2),
+      Infit:+infit.toFixed(2),  Infit_t:+tZ.toFixed(2),  Infit_p:+pVal(tZ).toFixed(2)
     });
   });
 
-  // Reliability / Variance
+  // ---------- Reliability ----------
   const thetaVals=students.map(s=>theta[s]);
-  const itemVals=items.map(it=>b[it]);
+  const betaVals =items.map(it=>beta[it]);
   const variance = arr=>{
-    const m=arr.reduce((a,b)=>a+b,0)/arr.length;
-    return arr.reduce((a,x)=>a+(x-m)*(x-m),0)/arr.length;
+    const μ=arr.reduce((a,x)=>a+x,0)/arr.length;
+    return arr.reduce((a,x)=>a+(x-μ)**2,0)/arr.length;
   };
-  const varPersons = variance(thetaVals);
-  const varItems   = variance(itemVals);
+  const varPersons=variance(thetaVals);
   const avgVar = pairs.reduce((a,p)=>{
-    const pr=1/(1+Math.exp(-(theta[p.student]-b[p.item])));
-    return a + pr*(1-pr);
+    const m=stepsByItem[p.item];
+    const pr=categoryProbs(theta[p.student],beta[p.item],
+                           modelType==='pcm'?delta_pcm[p.item]:delta_rsm,
+                           m,modelType);
+    const Ex = pr.reduce((acc,pj,j)=>acc+j*pj,0);
+    const Var= pr.reduce((acc,pj,j)=>acc+pj*(j-Ex)**2,0);
+    return a+Var;
   },0)/pairs.length;
-  const reliability = varPersons/(varPersons+avgVar || 1e-6);
+  const reliability = varPersons/(varPersons+avgVar||1e-6);
 
-  // render summary + charts + table
-  irtSummary.innerHTML = `
+  // ---------- 可视化 ----------
+  irtSummary.innerHTML=`
     <div class="text-sm">
       <div><strong>Reliability</strong>: ${reliability.toFixed(3)}</div>
-      <div><strong>Variance (Persons)</strong>: ${varPersons.toFixed(3)} |
-           <strong>Variance (Items)</strong>: ${varItems.toFixed(3)}</div>
-    </div>
-  `;
-  drawWrightMap('wrightChart', thetaVals, itemVals);
+      <div><strong>Variance (Persons)</strong>: ${varPersons.toFixed(3)}</div>
+    </div>`;
+  drawWrightMap('wrightChart', thetaVals, betaVals);
 
+  // ---------- 表格 ----------
   const tbl=document.createElement('table'); tbl.className='w-full text-sm';
-  tbl.innerHTML = `
+  tbl.innerHTML=`
     <thead>
       <tr class="border-b border-gray-700">
-        <th class="text-left py-1 px-2">Item</th>
-        <th class="text-right py-1 px-2">Outfit</th>
-        <th class="text-right py-1 px-2">Outfit_t</th>
-        <th class="text-right py-1 px-2">Outfit_p</th>
-        <th class="text-right py-1 px-2">Infit</th>
-        <th class="text-right py-1 px-2">Infit_t</th>
-        <th class="text-right py-1 px-2">Infit_p</th>
+        <th>Item</th><th class="text-right">Outfit</th><th class="text-right">Outfit_t</th><th class="text-right">Outfit_p</th>
+        <th class="text-right">Infit</th> <th class="text-right">Infit_t</th> <th class="text-right">Infit_p</th>
       </tr>
     </thead><tbody></tbody>`;
   const tb=tbl.querySelector('tbody');
-  rows.forEach(r=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="py-1 px-2">${r.Item}</td>
-      <td class="py-1 px-2 text-right">${r.Outfit.toFixed(2)}</td>
-      <td class="py-1 px-2 text-right">${r.Outfit_t.toFixed(2)}</td>
-      <td class="py-1 px-2 text-right">${r.Outfit_p.toFixed(2)}</td>
-      <td class="py-1 px-2 text-right">${r.Infit.toFixed(2)}</td>
-      <td class="py-1 px-2 text-right">${r.Infit_t.toFixed(2)}</td>
-      <td class="py-1 px-2 text-right">${r.Infit_p.toFixed(2)}</td>`;
-    tb.appendChild(tr);
+  itemsRows.forEach(r=>{
+    tb.innerHTML+=`
+      <tr><td>${r.Item}</td>
+          <td class="text-right">${r.Outfit}</td><td class="text-right">${r.Outfit_t}</td><td class="text-right">${r.Outfit_p}</td>
+          <td class="text-right">${r.Infit}</td> <td class="text-right">${r.Infit_t}</td> <td class="text-right">${r.Infit_p}</td></tr>`;
   });
   irtTableWrap.innerHTML=''; irtTableWrap.appendChild(tbl);
 
-  // export IRT table
-  exportIRTBtn.onclick = ()=>{
-    const csv = Papa.unparse(rows);
-    const blob = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
-    downloadBlob(blob, 'irt_table.csv');
+  // ---------- 导出 CSV ----------
+  document.getElementById('exportIRTBtn').onclick=()=>{
+    const csv=Papa.unparse(itemsRows);
+    const blob=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    downloadBlob(blob,'irt_'+modelType+'.csv');
   };
 }
-// Normal CDF
-function phiCdf(z){
-  const t=1/(1+0.2316419*Math.abs(z));
-  const d=Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
-  const p=1 - d*(0.319381530*t - 0.356563782*t**2 + 1.781477937*t**3 - 1.821255978*t**4 + 1.330274429*t**5);
-  return z>=0? p : 1-p;
-}
-
 /***** languages.js *****/
 const translations = {
   en: {
