@@ -38,6 +38,22 @@
       <span class="block text-xl font-semibold mt-1">AI-powered Assessment Insight Platform</span>
       <span class="block text-base font-medium mt-1">(Artificial Neural Network Prediction ＋ Rasch Diagnostics)</span>
     </h1>
+
+    <!-- Item Descriptive CSV -->
+- <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">Item Descriptive CSV</h3>
++ <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">
++   Item Descriptive CSV
++   <span id="itemStatus" class="ml-2 align-middle"></span>
++ </h3>
+
+<!-- Student Responses CSV -->
+- <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">Student Responses CSV</h3>
++ <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">
++   Student Responses CSV
++   <span id="scoreStatus" class="ml-2 align-middle"></span>
++ </h3>
+
+    
     <!-- 语言下拉 -->
     <select id="langSelect"
             class="absolute right-6 top-1/2 -translate-y-1/2 bg-gray-700 border border-gray-600 rounded px-2 py-1">
@@ -257,15 +273,22 @@
     <!-- IRT -->
     <section id="irt" class="space-y-4">
       <h2 class="text-lg font-semibold" data-i18n="sectionIRT">7. IRT Calibration & Wright Map</h2>
-      <div class="bg-gray-800 border border-gray-700 rounded p-4 space-y-4">
-        <div id="irtSummary" class="text-sm"></div>
-        <div class="flex items-center gap-3">
-          <button id="exportIRTBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm" data-i18n="exportIRTCSV">Export IRT Table CSV</button>
-        </div>
-        <div id="wrightChart" class="w-full" style="height:420px;"></div>
-        <div id="irtTableWrap" class="overflow-auto"></div>
+      <div class="flex items-center gap-3 text-sm">
+        <label class="flex items-center gap-2">
+          <span>IRT Model</span>
+          <select id="irtModelSelect"
+                  class="bg-gray-700 border border-gray-600 rounded px-2 py-1">
+            <option value="pcm">PCM</option>
+            <option value="rsm">RSM</option>
+          </select>
+        </label>
+      
+        <button id="exportIRTBtn"
+                class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
+                data-i18n="exportIRTCSV">Export IRT Table CSV</button>
       </div>
     </section>
+  
   </main>
 </body>
 </html>
