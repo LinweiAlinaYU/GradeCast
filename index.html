@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GradeCast</title>
 
-  <!-- Favicon: little whale 🐳 -->
+  <!-- Favicon 🐳 -->
   <link rel="icon" type="image/svg+xml"
         href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text y="90" font-size="90">🐳</text></svg>'/>
 
@@ -30,114 +30,135 @@
   <script defer src="app.js"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
-  <!-- Header -->
+<!-- Header -->
 <header class="bg-gray-800">
-  <!-- 新增這一層：最大寬度 + 自動左右外邊距 + flex 垂直置中 -->
-  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-center">
-  <h1 class="leading-tight text-center">
-  <span class="block text-3xl font-extrabold">GradeCast</span>
-  <span class="block text-xl font-semibold mt-1">AI-powered Assessment Insight Platform</span>
-  <span class="block text-base font-medium mt-1">(Artificial Neural Network Prediction ＋ Rasch Diagnostics)</span>
-</h1>
-    <!-- 如果右邊還需要語言下拉，放在同一 flex 裏但用 absolute/translateX 也可 -->
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-center relative">
+    <h1 class="leading-tight text-center">
+      <span class="block text-3xl font-extrabold">GradeCast</span>
+      <span class="block text-xl font-semibold mt-1">AI-powered Assessment Insight Platform</span>
+      <span class="block text-base font-medium mt-1">(Artificial Neural Network Prediction ＋ Rasch Diagnostics)</span>
+    </h1>
+    <!-- 语言下拉 -->
+    <select id="langSelect"
+            class="absolute right-6 top-1/2 -translate-y-1/2 bg-gray-700 border border-gray-600 rounded px-2 py-1">
+      <option value="en">English</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="zh-TW">繁體中文</option>
+    </select>
   </div>
 </header>
 
-  <main class="p-6 space-y-8">
-    <!-- TOC -->
-    <nav class="bg-gray-800 border border-gray-700 rounded p-4">
-      <h2 class="font-semibold mb-2" data-i18n="toc">Contents</h2>
-      <ol class="list-decimal ml-6 space-y-1 text-sm text-gray-300">
-        <li><a href="#upload" class="hover:underline" data-i18n="tocUpload">Upload & Mapping</a></li>
-        <li><a href="#features" class="hover:underline" data-i18n="tocFeatureSel">Feature Selection</a></li>
-        <li><a href="#config" class="hover:underline" data-i18n="tocConfig">Model Config & Validation</a></li>
-        <li><a href="#train" class="hover:underline" data-i18n="tocTrain">Training & Progress</a></li>
-        <li><a href="#results" class="hover:underline" data-i18n="tocResults">Results</a></li>
-        <li><a href="#predict" class="hover:underline" data-i18n="tocPredict">Prediction</a></li>
-        <li><a href="#irt" class="hover:underline" data-i18n="tocIRT">IRT Calibration</a></li>
-      </ol>
-    </nav>
+<main class="p-6 space-y-8">
 
-    <!-- Upload -->
-    <section id="upload" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionUpload">1. Upload & Column Mapping</h2>
+  <!-- TOC -->
+  <nav class="bg-gray-800 border border-gray-700 rounded p-4">
+    <h2 class="font-semibold mb-2" data-i18n="toc">Contents</h2>
+    <ol class="list-decimal ml-6 space-y-1 text-sm text-gray-300">
+      <li><a href="#upload"   class="hover:underline" data-i18n="tocUpload">Upload & Mapping</a></li>
+      <li><a href="#features" class="hover:underline" data-i18n="tocFeatureSel">Feature Selection</a></li>
+      <li><a href="#config"   class="hover:underline" data-i18n="tocConfig">Model Config & Validation</a></li>
+      <li><a href="#train"    class="hover:underline" data-i18n="tocTrain">Training & Progress</a></li>
+      <li><a href="#results"  class="hover:underline" data-i18n="tocResults">Results</a></li>
+      <li><a href="#predict"  class="hover:underline" data-i18n="tocPredict">Prediction</a></li>
+      <li><a href="#irt"      class="hover:underline" data-i18n="tocIRT">IRT Calibration</a></li>
+    </ol>
+  </nav>
 
-      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <!-- Item CSV -->
-        <div class="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">Item Descriptive CSV</h3>
-          <input id="itemFile" type="file" accept=".csv" class="w-full"/>
-          <p class="text-sm text-gray-400 mt-1" data-i18n="itemCsvDesc">
-            Include: ItemID, Construct, Format ... (any columns you want).
-          </p>
+  <!-- 1. UPLOAD ------------------------------------------------------------>
+  <section id="upload" class="space-y-4">
+    <h2 class="text-lg font-semibold" data-i18n="sectionUpload">1. Upload & Column Mapping</h2>
 
-          <div id="itemMapping" class="mt-4 hidden">
-            <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label class="text-sm">
-                <span data-i18n="itemIdCol">Item ID Column</span>
-                <select id="itemIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
-              </label>
-            </div>
-          </div>
-        </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
-        <!-- Score CSV -->
-        <div class="bg-gray-800 border border-gray-700 rounded p-4">
-          <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">Student Responses CSV</h3>
-          <input id="scoreFile" type="file" accept=".csv" class="w-full"/>
-          <p class="text-sm text-gray-400 mt-1" data-i18n="scoreCsvDesc">
-            Long: (StudentID, ItemID, Score). Wide: row=student, columns=items.
-          </p>
-
-          <div id="scoreMapping" class="mt-4 hidden">
-            <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <label class="text-sm">
-                <span data-i18n="studentIdCol">Student ID Column</span>
-                <select id="studentIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
-              </label>
-              <label class="text-sm">
-                <span data-i18n="scoreFormat">Score Format</span>
-                <select id="scoreFormatSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
-                  <option value="long" data-i18n="formatLong">Long: StudentID/ItemID/Score</option>
-                  <option value="wide" data-i18n="formatWide">Wide: row=student, cols=items</option>
-                </select>
-              </label>
-              <label class="text-sm">
-                <span data-i18n="itemIdCol">Item ID Column (Long)</span>
-                <select id="scoreItemIdSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
-              </label>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-              <label class="text-sm">
-                <span data-i18n="scoreCol">Score Column (Long)</span>
-                <select id="scoreValueSelect" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
-              </label>
-              <label class="text-sm">
-                <span data-i18n="wideItemCols">Wide Item Columns (multi-select)</span>
-                <select id="wideItemColsSelect" multiple size="6" class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="text-xs text-gray-400">
-        <span data-i18n="loadedItemFile">Item file:</span> <span id="itemFileName">-</span> |
-        <span data-i18n="loadedScoreFile">Score file:</span> <span id="scoreFileName">-</span>
-      </div>
-    </section>
-
-    <!-- Feature Selection -->
-    <section id="features" class="space-y-4">
-      <h2 class="text-lg font-semibold" data-i18n="sectionFeatures">2. Feature Selection (for ANN)</h2>
+      <!-- Item CSV -->
       <div class="bg-gray-800 border border-gray-700 rounded p-4">
-        <p class="text-sm text-gray-400" data-i18n="featureHint">
-          Choose which columns from the Item CSV participate in the model, and set encoding type.
+        <h3 class="font-semibold mb-2" data-i18n="itemCsvTitle">Item Descriptive CSV
+          <span id="itemStatus" class="ml-2"></span>
+        </h3>
+        <input id="itemFile" type="file" accept=".csv" class="w-full"/>
+        <p class="text-sm text-gray-400 mt-1" data-i18n="itemCsvDesc">
+          Include: ItemID, Construct, Format ... (any columns you want).
         </p>
-        <div id="featureList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
+
+        <div id="itemMapping" class="mt-4 hidden">
+          <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="text-sm">
+              <span data-i18n="itemIdCol">Item ID Column</span>
+              <select id="itemIdSelect"
+                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+            </label>
+          </div>
+        </div>
       </div>
-    </section>
+
+      <!-- Score CSV -->
+      <div class="bg-gray-800 border border-gray-700 rounded p-4">
+        <h3 class="font-semibold mb-2" data-i18n="scoreCsvTitle">Student Responses CSV
+          <span id="scoreStatus" class="ml-2"></span>
+        </h3>
+        <input id="scoreFile" type="file" accept=".csv" class="w-full"/>
+        <p class="text-sm text-gray-400 mt-1" data-i18n="scoreCsvDesc">
+          Long: (StudentID, ItemID, Score). Wide: row=student, columns=items.
+        </p>
+
+        <div id="scoreMapping" class="mt-4 hidden">
+          <h4 class="font-medium mb-2" data-i18n="columnMapping">Column Mapping</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label class="text-sm">
+              <span data-i18n="studentIdCol">Student ID Column</span>
+              <select id="studentIdSelect"
+                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+            </label>
+            <label class="text-sm">
+              <span data-i18n="scoreFormat">Score Format</span>
+              <select id="scoreFormatSelect"
+                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1">
+                <option value="long" data-i18n="formatLong">Long: StudentID/ItemID/Score</option>
+                <option value="wide" data-i18n="formatWide">Wide: row=student, cols=items</option>
+              </select>
+            </label>
+            <label class="text-sm">
+              <span data-i18n="itemIdCol">Item ID Column (Long)</span>
+              <select id="scoreItemIdSelect"
+                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            <label class="text-sm">
+              <span data-i18n="scoreCol">Score Column (Long)</span>
+              <select id="scoreValueSelect"
+                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+            </label>
+            <label class="text-sm">
+              <span data-i18n="wideItemCols">Wide Item Columns (multi-select)</span>
+              <select id="wideItemColsSelect" multiple size="6"
+                      class="mt-1 w-full bg-gray-700 border border-gray-600 rounded px-2 py-1"></select>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-xs text-gray-400">
+      <span data-i18n="loadedItemFile">Item file:</span>
+      <span id="itemFileName">-</span> |
+      <span data-i18n="loadedScoreFile">Score file:</span>
+      <span id="scoreFileName">-</span>
+    </div>
+  </section>
+
+  <!-- 2. FEATURE SELECTION ------------------------------------------------>
+  <section id="features" class="space-y-4 opacity-50 pointer-events-none">
+    <h2 class="text-lg font-semibold" data-i18n="sectionFeatures">2. Feature Selection (for ANN)</h2>
+    <div class="bg-gray-800 border border-gray-700 rounded p-4">
+      <p class="text-sm text-gray-400" data-i18n="featureHint">
+        Choose which columns from the Item CSV participate in the model, and set encoding type.
+      </p>
+      <div id="featureList"
+           class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
+    </div>
+  </section>
 
     <!-- Model Config -->
     <section id="config" class="space-y-4">
