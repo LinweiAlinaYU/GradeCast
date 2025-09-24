@@ -117,46 +117,58 @@ function parseCSV(file, onComplete){
 function show(el){ el.classList.remove('hidden'); }
 function hide(el){ el.classList.add('hidden'); }
 
-// ---------- read files ----------
-// 全局加载状态
 let itemLoaded=false, scoreLoaded=false;
-
 function handleCSV(file, type){
-  // 0) 开始解析：先给出 ⏳
   const tgt = (type==='item') ? itemStatus : scoreStatus;
   tgt.textContent = '⏳';
   tgt.className   = 'ml-2 text-yellow-300 align-middle';
 
-  parseCSV(file,(headers,rows)=>{
-    // 1) 解析成功 → ✅
-    tgt.textContent = '✅';
-    tgt.className   = 'ml-2 text-green-400 align-middle';
+  parseCSV(file,
+    (headers,rows)=>{  // success
+      tgt.textContent = '✅';
+      tgt.className   = 'ml-2 text-green-400 align-middle';
 
-    if(type==='item'){
-      itemHeaders=headers; itemRows=rows; itemLoaded=true;
-      $('#itemFileName').textContent=file.name;
-      fillSelectOptions(itemIdSelect, headers);
-      show(itemMapDiv);
-      buildFeatureCards(headers);
-    }else{
-      scoreHeaders=headers; scoreRows=rows; scoreLoaded=true;
-      $('#scoreFileName').textContent=file.name;
-      fillSelectOptions(studentIdSelect, headers);
-      fillSelectOptions(scoreItemIdSelect, headers);
-      fillSelectOptions(scoreValueSelect, headers);
-      fillMultiSelect(wideItemColsSelect, headers);
-      show(scoreMapDiv);
+      if(type==='item'){
+        itemHeaders=headers; itemRows=rows; itemLoaded=true;
+        $('#itemFileName').textContent=file.name;
+        fillSelectOptions(itemIdSelect, headers);
+        show(itemMapDiv);
+        buildFeatureCards(headers);
+      }else{
+        scoreHeaders=headers; scoreRows=rows; scoreLoaded=true;
+        $('#scoreFileName').textContent=file.name;
+        fillSelectOptions(studentIdSelect, headers);
+        fillSelectOptions(scoreItemIdSelect, headers);
+        fillSelectOptions(scoreValueSelect, headers);
+        fillMultiSelect(wideItemColsSelect, headers);
+        show(scoreMapDiv);
+      }
+      console.info(`[${type}] CSV parsed:`, rows.length, 'rows');
+      unlockSections();
+    },
+    (errMsg)=>{        // error
+      tgt.textContent = '❌';
+      tgt.className   = 'ml-2 text-red-500 align-middle';
+      alert('CSV parse error: '+errMsg);
     }
-    unlockSections();
 
-  }, (errMsg)=>{
-    // 2) 解析失败 → ❌
-    tgt.textContent = '❌';
-    tgt.className   = 'ml-2 text-red-500 align-middle';
-    alert('CSV parse error: '+errMsg);
-  });
+  );
 }
-    // 日志或 UI 提示
+
+itemFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'item'); });
+scoreFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'score'); });
+
+function show(el){ el.classList.remove('hidden'); }
+function hide(el){ el.classList.add('hidden'); }
+
+function unlockSections(){
+  if(itemLoaded && scoreLoaded){
+    ['featuresWrap','configWrap','trainWrap','resultsWrap','predictWrap','irtWrap']
+      .forEach(id=> document.getElementById(id)?.classList.remove('opacity-50','pointer-events-none'));
+  }
+}
+
+// ---------- Feature selection UI ----------
     console.info(`[${type}] CSV parsed:`, rows.length, 'rows');
 
     unlockSections();
