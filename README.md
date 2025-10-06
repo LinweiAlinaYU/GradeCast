@@ -1,15 +1,17 @@
-# GradeCast — AI-powered Assessment Insight Platform (Artificial Neural Network Prediction ＋ Rasch Diagnostics)
+# GradeCast — AI-powered Assessment Insight Platform  
+*(Artificial Neural Network Prediction ＋ Rasch Diagnostics)*
 
-Upload your student-item response data, train neural networks entirely in-browser with TensorFlow.js (hold-out / LOOCV), and instantly explore Rasch/IRT analytics—including Wright maps and Infit/Outfit fit statistics—-all in an open-source, privacy-first workflow.
+Upload your student–item response data, train neural networks entirely **in-browser** with TensorFlow.js (Holdout / LOOCV), and instantly explore **Rasch / IRT analytics**—including Wright Maps and Infit/Outfit fit statistics—all in an **open-source, privacy-first workflow**.
 
-**Features:** CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
+**Features:**  
+CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
 
-By **Linwei Yu** (The University of Hong Kong, linweiyu@connect.hku.hk)
+By **Linwei Yu**  
+The University of Hong Kong · [linweiyu@connect.hku.hk](mailto:linweiyu@connect.hku.hk)
 
 ---
 
 ## Table of Contents
-
 - [Overview](#overview)
 - [Live Stack](#live-stack)
 - [Repository Structure](#repository-structure)
@@ -32,54 +34,55 @@ By **Linwei Yu** (The University of Hong Kong, linweiyu@connect.hku.hk)
 
 ## Overview
 
-**GradeCast** runs entirely in the browser—no backend needed. It lets you:
+**GradeCast** runs entirely in your browser — no backend or installation required.
 
-1. Upload **Item Descriptive** CSV (e.g., `ItemID`, `Construct`, `Format`, …) and **Student Responses** CSV.
+It enables you to:
+
+1. Upload **Item Descriptive CSV** (e.g., `ItemID`, `Construct`, `Format`, …) and **Student Responses CSV**.
 2. Map columns interactively (supports **Long** or **Wide** response format).
-3. Configure multiple** Artificial Neural Network (ANN)** training setups and validation schemes (**Holdout / LOOCV**).
-4. Train with **precise progress bars**.
-5. Use the **best model** to predict performance for **new items**.
-6. Run **Rasch / Item Response Theory (IRT) calibration** (lightweight Rasch approximation) and draw a **Wright Map**.
+3. Configure multiple **Artificial Neural Network (ANN)** architectures and validation schemes (**Holdout / LOOCV**).
+4. Train with real-time **progress bars**.
+5. Use the **best model** (lowest RMSE) to predict performance for new items.
+6. Perform **Rasch / IRT calibration** and visualize results via a **Wright Map**.
 
-All computation happens locally via **TensorFlow.js**, **PapaParse**, **Plotly**, and **TailwindCSS**.
+All computation happens locally using **TensorFlow.js**, **PapaParse**, **Plotly**, and **TailwindCSS**.
 
 ---
 
 ## Live Stack
 
-- **UI:** Tailwind CSS (dark, minimal, techy)
-- **CSV:** PapaParse (client-side)
-- **ML:** TensorFlow.js (ANN regression)
-- **Charts:** Plotly (loss curves, scatter, Wright Map)
-- **i18n:** In-memory dictionaries (English, Simplified Chinese, Traditional Chinese)
+| Layer | Library | Description |
+|-------|----------|-------------|
+| **UI** | TailwindCSS | Minimal dark tech-style interface |
+| **CSV Parsing** | PapaParse | Client-side CSV handling |
+| **Machine Learning** | TensorFlow.js | ANN regression and evaluation |
+| **Charts** | Plotly.js | Loss curves, scatter plots, Wright Maps |
+| **i18n** | In-memory dictionaries | English / Simplified / Traditional Chinese |
 
 ---
 
 ## Repository Structure
 
+```
 /
-├─ index.html # Main page (containers + CDN deps)
+├─ index.html     # Main entry (UI + containers + CDN deps)
+├─ app.js         # Upload/mapping, ANN training, validation, prediction, IRT logic
+├─ charts.js      # Plotly charts: loss curve, actual vs. predicted, Wright Map
+├─ styles.css     # Minimal CSS; Tailwind handles layout and theme
+└─ (CDN-loaded)   # PapaParse / TensorFlow.js / Plotly / Tailwind
+```
 
-├─ app.js # Upload/mapping, training/validation, prediction, IRT, progress, i18n glue
-
-├─ charts.js # Plotly charts: loss curve, actual-vs-pred, Wright Map
-
-├─ styles.css # Minimal extra CSS; Tailwind handles most styles
-
-└─ (CDN) # PapaParse / TensorFlow.js / Plotly / Tailwind loaded via CDN in index.html
-
-
-> If you want to self-host vendor scripts, place them under `libs/` and update the `<script src>` tags in `index.html`.
+> Prefer offline vendor scripts? Copy them into `/libs` and update `<script src>` paths in `index.html`.
 
 ---
 
 ## Quick Start
 
-1. Clone or download this repo.  
-2. Open `index.html` in a modern browser (or host as a static site).  
-3. (Optional) Switch the UI language from the top-right **Language** selector.
+1. **Download or clone** this repository.  
+2. Open `index.html` directly in a modern browser (Chrome / Edge / Firefox).  
+3. Upload your CSVs and follow the interface prompts.  
 
-No build steps are required.
+No build or installation steps required.
 
 ---
 
@@ -87,242 +90,178 @@ No build steps are required.
 
 ### Item Descriptive CSV
 
-> Used in **training** and **prediction**; the **structure must be identical** in both stages.
+Used for both **training** and **prediction**; structure must be identical in both.
 
-**Required**
+**Required column**
 - `ItemID`
 
-**Optional categorical features (multi-select)**
-- e.g., `Construct`, `Format`, domain tags, source, etc.  
-  All selected features are treated as **categorical** and **one-hot encoded**.
+**Optional features** (user-selectable as **categorical** or **numeric**)
+- e.g., `Construct`, `Format`, `Domain`, etc.
 
 **Example**
-Student Responses CSV
+```csv
+ItemID,Construct,Format
+Delivery.00abc,DCS,CR
+Delivery.00ab,DCS,SR
+Elevator.02ab,DCS,SR
+```
 
-Supports two shapes:
+---
 
-1) Long format — one row per (Student, Item)
+### Student Responses CSV
+
+Supports **Long** or **Wide** format.
+
+#### 1) Long Format  
+Each row = one (StudentID, ItemID, Score) pair.
+
+```csv
 StudentID,ItemID,Score
 S001,IC174Q03JA,1
 S001,IC183Q16JA,0
 S002,IC174Q03JA,1
+```
 
-2) Wide format — one row per Student; item columns hold scores
+#### 2) Wide Format  
+Each row = one Student; columns represent item scores.
+
+```csv
 StudentID,IC174Q03JA,IC183Q16JA,ST291Q02JA
 S001,1,0,1
 S002,1,1,0
+```
 
-During training, Item Descriptives are joined with Student Responses via ItemID.
-For individualized predictions (Kidmap-style), StudentID is also treated as a categorical feature (one-hot).
+During training, responses are joined with item descriptives via **ItemID**.  
+`StudentID` is also one-hot encoded as a **personalization feature**.
+
+---
 
 ## How to Use
-**1) Upload & Map Columns**
 
-Left: upload Item Descriptive CSV → select Item ID and Feature columns (multi-select).
+### 1) Upload & Map Columns
+- **Left:** Upload *Item Descriptive CSV* → choose **ItemID** and feature columns.  
+- **Right:** Upload *Student Responses CSV* → choose format (**Long/Wide**) and map columns.  
+  - **Long:** `StudentID`, `ItemID`, `Score`  
+  - **Wide:** `StudentID`, **item columns** (multi-select)  
 
-Right: upload Student Responses CSV → choose format (Long/Wide) and map:
+Once both files parse successfully (✅), later sections unlock automatically.
 
-Long: StudentID, ItemID, Score
+---
 
-Wide: StudentID, Item columns (multi-select)
+### 2) Feature Selection
+Pick which Item CSV columns to use.  
+Each can be marked **categorical** (one-hot) or **numeric**.  
+Default: all enabled as categorical.
 
-**2) Model Structure**
+---
 
+### 3) Model & Validation
 Configure:
+- Hidden layers (neurons + activation: **ReLU / Tanh / Sigmoid**)
+- **Learning Rate**, **Epochs**, **Batch Size**
+- **Validation**:
+  - **Holdout** (e.g., 80/20 split; model persisted for prediction)
+  - **LOOCV** (Leave-One-Out; rigorous evaluation; model not persisted)
 
-Hidden neurons, Epochs, Batch size, Learning rate, Activation (ReLU / Sigmoid / Tanh)
+---
 
-**3) Validation Configs (add multiple)**
+### 4) Training
+Click **Start Training**.
 
-Holdout (Train Ratio %): split train/test; a single model is kept for prediction.
+- **Holdout:** epoch-level progress, **loss curves** (train/val), **Predicted vs Actual** scatter, metrics (MAE / MSE / RMSE / R²).  
+- **LOOCV:** sample-level progress, final metrics (MAE / MSE / RMSE / R²).
 
-LOOCV (Leave-One-Out): stricter evaluation; no single model is persisted.
+The **best Holdout model** (lowest RMSE) is retained for prediction.
 
-**4) Train**
+---
 
-Click Start Training. Watch precise progress bars:
+### 5) Prediction Workflow
+1. Ensure a **Holdout** run was trained (to keep a model).  
+2. Upload a **new Item Descriptive CSV** (same columns as training).  
+3. The model reuses encoders; unseen categories are ignored (all-zero).  
+4. The app generates **(Student × Item)** predictions (preview + CSV export).
 
-Holdout → epoch-level
+---
 
-LOOCV → sample-level
+## IRT Calibration
+Run **Compute IRT from Observed Scores** to perform a frontend-friendly Rasch-family approximation (**PCM / RSM**). Calculations use JML-style alternating updates.
 
-Each config produces:
+**Outputs**
+- **Reliability** and **Variance (Persons)**
+- **Fit statistics** per item: **Infit / Outfit / t / p**
+- **Wright Map**: overlaid histograms of θ (persons) and b (items)
+- **Exportable CSV** with item fit indices
 
-Metrics: MAE / MSE / RMSE / R²
+> This is designed for realtime diagnostics. For high-stakes calibration, consider full JML/MML implementations.
 
-(Holdout) Loss curves (train/val)
-
-(Holdout) Predicted vs Actual scatter
-
-**5) Predict New Items**
-
-Upload a new Item Descriptive CSV (same structure as training).
-The best Holdout model (lowest RMSE) is used to predict (Student × Item) pairs.
-
-**6) IRT Calibration & Wright Map**
-
-After prediction, the platform runs a lightweight Rasch 1PL approximation and outputs:
-
-- Reliability, Variance (Persons / Items)
-
-- Infit / Outfit / Infit_t / Infit_p / Outfit_t / Outfit_p (table)
-
-- Wright Map (chart + tabular values)
+---
 
 ## Model & Validation
 
-**ANN**
+**ANN Architecture**
+```
+Input (one-hot categorical + numeric)
+   ↓
+Dense(hidden₁, activation)
+   ↓
+Dense(hidden₂, activation)
+   ↓
+Dense(1, linear)
+```
 
-- Input: one-hot encoded categorical features (Construct, Format, …, StudentID)
+- Loss: **Mean Squared Error**  
+- Optimizer: **Adam** (configurable LR)  
+- Validation: **Holdout** (keeps model) / **LOOCV** (no persisted model)
 
-- Architecture: [Dense(hidden, activation)] -> [Dense(1, linear)]
-
-- Loss: Mean Squared Error (regression over scores/probabilities)
-
-- Optimizer: Adam (configurable learning rate)
-
-**Holdout**
-
-- Random shuffle → train/test split by ratio
-
-- Keeps a single model instance for prediction
-
-**LOOCV**
-
-- Iterates leave-one-out across samples
-
-- Provides strict evaluation metrics; no single final model is stored
-
-## Prediction Workflow
-
-1. Use the best Holdout model (lowest RMSE).
-
-2. Upload a new Item Descriptive CSV (same columns as training).
-
-3. The original one-hot dictionaries are reused; unseen categories are ignored (all-zero slot).
-
-4. The app produces (Student × Item) predictions and displays a preview table.
-
-5. Predictions are immediately passed to IRT calibration.
-
-## IRT Calibration
-
-A frontend-friendly approximation to Rasch (1PL) for realtime feedback.
-Suitable for quick diagnostics; replace with JML/MML later if you need full parity with specialized IRT software.
-
-## Process
-
-1. Normalize predicted scores to [0, 1] (min-max) and treat them as response probabilities.
-
-2. Alternate updates (gradient-style):
-
-- Estimate θ (persons) and b (items) with logistic link.
-
-3. Fit statistics (per item):
-
-- Standardized residuals: z = (y − p̂) / sqrt(p̂ (1 − p̂))
-
-- Outfit = mean of z²; Infit = information-weighted mean of z²
-
-- t: mean-z approximation; p: normal tail two-sided approximation
-
-- Reliability (rough):
-
-- Rel ≈ Var(θ) / (Var(θ) + mean Var_error)
-
-## Wright Map:
-
-- Overlaid histograms for θ and b on the same (relative) logit scale.
-
-## Outputs
-
-- Summary: Reliability, Variance (Persons / Items)
-
-- Table: Item | Outfit | Outfit_t | Outfit_p | Infit | Infit_t | Infit_p
-
-- Chart: Wright Map
-
-For high-stakes calibration, consider server-side JML/MML or full Rasch packages.
-This module is designed for instant insight in the browser.
+---
 
 ## Deploy to GitHub Pages
 
-1. Push the repository to GitHub.
+1. Push the repository to GitHub.  
+2. **Settings → Pages**.  
+3. Source: **Deploy from a branch** → Branch: `main` → Folder: `/ (root)`.  
+4. Save and open the generated URL.  
+5. The app runs entirely client-side.
 
-2. Open Settings → Pages:
-
-- Source: Deploy from a branch
-
-- Branch: main (or your branch) / (root)
-
-3. Save and wait for the Pages URL to be generated.
-
-4. Visit the URL; the app runs entirely in the browser.
+---
 
 ## Troubleshooting
 
-**- Nothing happens after upload**
-Ensure both CSVs are uploaded and column mapping is completed (ItemID, StudentID, Score, features).
+| Issue | Fix |
+|------|-----|
+| **Nothing happens after upload** | Upload **both** CSVs and complete mappings for `ItemID`, `StudentID`, and `Score`/item columns. |
+| **LOOCV doesn’t keep a model** | Intended behavior. Use **Holdout** if you need prediction. |
+| **Predictions look identical** | Ensure selected features vary across items; mark types correctly (categorical vs numeric). |
+| **Wright Map looks degenerate** | Verify training produced non-trivial variance in predictions/scores. |
+| **Language doesn’t change** | Use the top-right language selector (session-scoped). |
 
-**- LOOCV doesn’t keep a model**
-By design. Use Holdout if you need a persisted model for prediction.
-
-**- All predictions identical**
-Check that selected feature columns are categorical and vary across items.
-
-**- Wright Map looks degenerate**
-If predictions have near-zero variance, min-max normalization collapses. Confirm training produced non-trivial outputs.
-
-**- Language doesn’t change**
-Use the selector in the header; the change is instant and session-scoped.
+---
 
 ## Security & Privacy
 
-- All data stays in the browser; no files are uploaded to any server.
+- All data stays **in the browser**; no upload to any server.  
+- State is in-memory; **close the tab** to clear it.  
+- No tracking or external APIs beyond the included CDNs.
 
-- Close the tab to clear in-memory state.
-(You can add optional localStorage persistence in your fork if needed.)
+---
 
 ## Limitations & Future Work
 
-- ANN is single-hidden-layer by default (can be extended to deeper nets).
+- ANN uses dense layers; deeper/alternative architectures can be added.  
+- IRT module is an approximation; replace with JML/MML for formal analyses.  
+- Potential enhancements: Kidmap heatmaps, richer reliability diagnostics, PNG export buttons, presets.
 
-- IRT calibration is an approximation; replace with JML/MML for formal analyses.
-
-- Export (CSV/PNG) can be added (Plotly supports built-in image downloads).
-
-- Add Kidmap heatmaps and richer diagnostics as needed.
+---
 
 ## License
 
-MIT license.
+**MIT License**  
+Copyright © 2025 **Linwei Yu**
 
-Copyright (c) 2025 Linwei YU
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+See the [LICENSE](./LICENSE) file for full details.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+---
 
 ## Acknowledgments
-
-- TensorFlow.js — in-browser ML
-
-- PapaParse — fast CSV parsing
-
-- Plotly.js — interactive charts
-
-- Tailwind CSS — utility-first styling
