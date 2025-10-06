@@ -36,11 +36,10 @@
       <span class="block text-xl font-semibold mt-1">AI-powered Assessment Insight Platform</span>
       <span class="block text-base font-medium mt-1">(Artificial Neural Network Prediction ＋ Rasch Diagnostics)</span>
     </h1>
-    <!-- 移除语言下拉后头部布局保持居中即可 -->
   </div>
 </header>
 
-<main class="p-6 space-y-8">
+<main class="p-6 space-y-8 max-w-6xl mx-auto">
   <!-- 目录 -->
   <nav class="bg-gray-800 border border-gray-700 rounded p-4">
     <h2 class="font-semibold mb-2">Contents</h2>
@@ -67,7 +66,7 @@
         </h3>
         <input id="itemFile" type="file" accept=".csv" class="w-full"/>
         <p class="text-sm text-gray-400 mt-1">
-          Include: ItemID, Construct, Format ... (any columns you want).
+          Expected: first column is <strong>ItemID</strong>, followed by descriptive columns (Construct, Format, etc.).
         </p>
         <div id="itemMapping" class="mt-4 hidden">
           <h4 class="font-medium mb-2">Column Mapping</h4>
@@ -88,7 +87,7 @@
         </h3>
         <input id="scoreFile" type="file" accept=".csv" class="w-full"/>
         <p class="text-sm text-gray-400 mt-1">
-          Long: (StudentID, ItemID, Score). Wide: row=student, columns=items.
+          Long format: (StudentID, ItemID, Score). Wide format: row=student, columns=items.
         </p>
         <div id="scoreMapping" class="mt-4 hidden">
           <h4 class="font-medium mb-2">Column Mapping</h4>
@@ -141,7 +140,7 @@
     <h2 class="text-lg font-semibold">2. Feature Selection (for ANN)</h2>
     <div class="bg-gray-800 border border-gray-700 rounded p-4">
       <p class="text-sm text-gray-400">
-        Choose which columns from the Item CSV participate in the model, and set encoding type.
+        Choose which descriptive columns (from the Item CSV) to include in the ANN model. Categorical features will be one-hot encoded.
       </p>
       <div id="featureList"
            class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
@@ -149,7 +148,7 @@
   </section>
 
   <!-- 3. MODEL CONFIG & VALIDATION -->
-  <section id="config" class="space-y-4">
+  <section id="config" class="space-y-4 opacity-50 pointer-events-none">
     <h2 class="text-lg font-semibold">3. Model Structure & Validation</h2>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- Hidden layers config -->
@@ -203,7 +202,7 @@
   </section>
 
   <!-- 4. START TRAINING -->
-  <section id="train" class="space-y-3">
+  <section id="train" class="space-y-3 opacity-50 pointer-events-none">
     <h2 class="text-lg font-semibold">4. Start Training</h2>
     <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded">Start Training</button>
     <div id="progressSection" class="hidden">
@@ -215,7 +214,7 @@
   </section>
 
   <!-- 5. TRAINING RESULTS -->
-  <section id="results" class="space-y-4">
+  <section id="results" class="space-y-4 opacity-50 pointer-events-none">
     <h2 class="text-lg font-semibold">5. Training Results</h2>
     <div class="flex items-center gap-3">
       <button id="exportTestBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Export Test Predictions CSV</button>
@@ -224,7 +223,7 @@
   </section>
 
   <!-- 6. PREDICT NEW ITEMS -->
-  <section id="predict" class="space-y-4">
+  <section id="predict" class="space-y-4 opacity-50 pointer-events-none">
     <h2 class="text-lg font-semibold">6. Predict New Items</h2>
     <div class="bg-gray-800 border border-gray-700 rounded p-4 space-y-3">
       <div>
@@ -240,7 +239,7 @@
   </section>
 
   <!-- 7. IRT CALIBRATION -->
-  <section id="irt" class="space-y-4">
+  <section id="irt" class="space-y-4 opacity-50 pointer-events-none">
     <h2 class="text-lg font-semibold">7. IRT Calibration & Wright Map</h2>
     <div class="flex items-center gap-3 text-sm">
       <label class="flex items-center gap-2">
@@ -250,9 +249,13 @@
           <option value="rsm">RSM</option>
         </select>
       </label>
+      <button id="runIRTBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Run IRT</button>
       <button id="exportIRTBtn"
               class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded">Export IRT Table CSV</button>
     </div>
+    <div id="irtSummary" class="text-sm"></div>
+    <div id="wrightChart" class="w-full" style="height:320px"></div>
+    <div id="irtTableWrap"></div>
   </section>
 </main>
 </body>
