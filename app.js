@@ -3,7 +3,7 @@ import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, exportPlotPN
 
 const $ = (s)=>document.querySelector(s);
 
-// ---------- elements ----------
+// ---------- elements ---------
 const itemFileInput = $('#itemFile');
 const scoreFileInput = $('#scoreFile');
 const predictFileInput = $('#predictItemFile');
