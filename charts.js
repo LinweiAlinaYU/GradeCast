@@ -12,8 +12,10 @@ export function drawLossCurvePlotly(div, trainLoss, valLoss){
 }
 
 export function drawScatterPlotPlotly(div, actual, pred){
-  const min = Math.min(...actual, ...pred);
-  const max = Math.max(...actual, ...pred);
+  const finiteA=actual.filter(Number.isFinite);
+  const finiteP=pred.filter(Number.isFinite);
+  const min = Math.min(...finiteA, ...finiteP);
+  const max = Math.max(...finiteA, ...finiteP);
   const data = [
     { x: actual, y: pred, mode:'markers', type:'scatter', name:'Predicted vs Actual' },
     { x: [min,max], y:[min,max], mode:'lines', name:'Ideal (Y=X)' }
@@ -26,44 +28,80 @@ export function drawScatterPlotPlotly(div, actual, pred){
 }
 
 /**
- * Wright Map：
- * lift: personal ability（x=Count, y=Logits）
- * Right：Item step（y=阈值 logit，x=按题目索引离散化）
+ * Wright Map
+ * - Shared Y axis (logit)
+ * - Left: horizontal histogram (persons) in x-domain [0, 0.35]
+ * - Right: item difficulties and step thresholds in x-domain [0.45, 1]
  */
-export function drawWrightMap(divId, thetaVals, stepPoints){
+export function drawWrightMapAdvanced(divId, thetaVals, itemInfo){
   const div = (typeof divId==='string')? document.getElementById(divId): divId;
 
-  // 直方图（水平）
-  const hist = {
-    y: thetaVals,
-    type: 'histogram',
-    name: 'Persons',
-    marker: {opacity:0.75},
-    orientation: 'h',
-    xaxis: 'x1',
-    yaxis: 'y1'
+  const traces = [];
+
+  // Left domain histogram (persons)
+  traces.push({
+    xaxis:'x', yaxis:'y',
+    type:'histogram', orientation:'h',
+    y: thetaVals, // bins along y (logit)
+    name:'Persons',
+    opacity:0.7,
+    marker:{}
+  });
+
+  // Right domain: item beta (as squares) + step thresholds (category markers)
+  const xItemIndex = itemInfo.items.map((_,i)=>i);
+  traces.push({
+    xaxis:'x2', yaxis:'y',
+    type:'scatter', mode:'markers',
+    x: xItemIndex,
+    y: itemInfo.beta,
+    name:'Items (β)',
+    marker:{ symbol:'square', size:7 }
+  });
+
+  // colored steps
+  const stepSymbols = ['circle','diamond','triangle-up','cross','x','star'];
+  itemInfo.steps.forEach((st, idx)=>{
+    traces.push({
+      xaxis:'x2', yaxis:'y',
+      type:'scatter', mode:'markers',
+      x: st.xIndex,
+      y: st.y,
+      name:`cat${st.k-1}/cat${st.k}`,
+      marker:{ size:7, symbol: stepSymbols[idx % stepSymbols.length] }
+    });
+  });
+
+  // layout with two x domains, shared y
+  const layout = {
+    margin:{t:10,r:10,l:50,b:60},
+    showlegend:true,
+    legend:{orientation:'h'},
+    yaxis:{
+      title:'Logits',
+      zeroline:true, zerolinecolor:'rgba(255,255,255,0.35)',
+      gridcolor:'rgba(255,255,255,0.08)'
+    },
+    xaxis:{
+      domain:[0, 0.35],
+      title:'Count',
+      gridcolor:'rgba(255,255,255,0.08)'
+    },
+    xaxis2:{
+      domain:[0.45, 1],
+      title:'Items / Steps (sorted by β)',
+      tickmode:'array',
+      tickvals: xItemIndex,
+      ticktext: itemInfo.items,
+      tickangle: -60,
+      gridcolor:'rgba(255,255,255,0.08)'
+    },
+    shapes:[
+      {type:'line', xref:'paper', x0:0, x1:1, yref:'y', y0:0, y1:0, line:{dash:'dot', width:1, color:'rgba(255,255,255,0.4)'}}
+    ]
   };
 
-  // 散点（右侧）
-  const scatter = {
-    x: stepPoints.map(p=>p.xIndex+1),
-    y: stepPoints.map(p=>p.y),
-    mode: 'markers',
-    name: 'Items (β + steps)',
-    xaxis: 'x2',
-    yaxis: 'y1',
-    text: stepPoints.map(p=>`${p.item} | cat${p.step-1}/cat${p.step}`),
-    hovertemplate: 'Item: %{text}<br>Logit: %{y:.3f}<extra></extra>'
-  };
-
-  Plotly.newPlot(div, [hist, scatter], {
-    margin:{t:30,r:10,l:50,b:50},
-    grid: {rows:1, columns:2, subplots:[['xy','x2y1']]},
-    xaxis:  {title:'Count', domain:[0,0.35]},
-    xaxis2: {title:'Items / Steps (sorted by β)', domain:[0.55,1]},
-    yaxis:  {title:'Logits'},
-    legend:{orientation:'h'}
-  }, {displaylogo:false, responsive:true});
+  Plotly.newPlot(div, traces, layout, {displaylogo:false, responsive:true});
 }
 
 export function downloadBlob(dataUrl, fileName){
