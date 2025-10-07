@@ -1,5 +1,5 @@
 /***** app.js *****/
-import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, exportPlotPNG, downloadBlob } from './charts.js';
+import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMapAdvanced, downloadBlob } from './charts.js';
 
 const $ = (s)=>document.querySelector(s);
 
@@ -40,23 +40,14 @@ const exportTestBtn = $('#exportTestBtn');
 const predictBtn = $('#predictBtn');
 const exportPredictBtn = $('#exportPredictBtn');
 const predictResultsDiv = $('#predictResults');
-const predictProgWrap = $('#predictProgWrap');
-const predictProgBar = $('#predictProgBar');
-const predictProgText = $('#predictProgText');
 
 const irtSummary = $('#irtSummary');
 const irtTableWrap = $('#irtTableWrap');
 const exportIRTBtn = $('#exportIRTBtn');
 const computeIRTBtn = $('#computeIRTBtn');
-const irtModelSelect = $('#irtModelSelect');
-const irtSourceSelect = $('#irtSourceSelect');
-const irtProgWrap = $('#irtProgWrap');
-const irtProgBar = $('#irtProgBar');
-const irtProgText = $('#irtProgText');
 
 const itemStatus  = document.getElementById('itemStatus');
 const scoreStatus = document.getElementById('scoreStatus');
-const predictStatus = document.getElementById('predictStatus');
 
 // ---------- state ----------
 let itemRows=[], itemHeaders=[];
@@ -70,13 +61,9 @@ let bestModelIndex=-1;
 
 let itemLoaded=false, scoreLoaded=false;
 
-let lastPredictRows=[]; // {student,item,pred}
-let lastIRTItemsRows=[]; // for export
-let globalMaxScore=1;   // 从训练数据推断的最大得分（用于新题IRT）
-
 // ---------- helpers ----------
-const show = (el)=>el.classList.remove('hidden');
-const hide = (el)=>el.classList.add('hidden');
+function show(el){ el.classList.remove('hidden'); }
+function hide(el){ el.classList.add('hidden'); }
 
 function enableWorkflowsIfReady(){
   if(itemLoaded && scoreLoaded){
@@ -86,6 +73,15 @@ function enableWorkflowsIfReady(){
       el?.removeAttribute('aria-disabled');
     });
   }
+}
+
+function isMissing(v){
+  // treat ".", "", null, undefined, "NA", "N/A" as missing
+  return v===null || v===undefined || v==='' || v==='.' || v==='NA' || v==='N/A';
+}
+function safeNumber(v, def=0){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
 }
 
 function fillSelectOptions(selectEl, options, placeholder){
@@ -110,18 +106,6 @@ function fillMultiSelect(selectEl, options){
   });
 }
 
-// 将 '.' / '' 视为缺失；尽可能把数值转成 Number
-function cleanRow(row){
-  const out={};
-  for (const [k,v] of Object.entries(row)){
-    if (v==='' || v===null || v===undefined || v==='.') { out[k]=null; continue; }
-    if (typeof v==='number') { out[k]=v; continue; }
-    const n = Number(v);
-    out[k] = Number.isFinite(n) ? n : v;
-  }
-  return out;
-}
-
 function parseCSV(file, onComplete, onError){
   Papa.parse(file, {
     header:true, dynamicTyping:false, skipEmptyLines:true,
@@ -130,9 +114,18 @@ function parseCSV(file, onComplete, onError){
         console.error(res.errors);
         onError?.(res.errors[0].message || 'CSV parse error');
       } else {
-        const fields = res.meta.fields||[];
-        const rows = (res.data||[]).map(cleanRow);
-        onComplete(fields, rows);
+        const headers = res.meta.fields||[];
+        // normalize rows: trim strings; leave numbers as strings for explicit casting later
+        const normRows = (res.data||[]).map(r=>{
+          const o={};
+          headers.forEach(h=>{
+            const v=r[h];
+            if (typeof v==='string') o[h]=v.trim();
+            else o[h]=v;
+          });
+          return o;
+        });
+        onComplete(headers, normRows);
       }
     }
   });
@@ -152,12 +145,11 @@ function handleCSV(file, type){
         itemHeaders=headers; itemRows=rows; itemLoaded=true;
         $('#itemFileName').textContent=file.name;
 
-        // 自动将第一列作为 ItemID（可手动改）
+        // default first column as ItemID
         fillSelectOptions(itemIdSelect, headers);
         if (headers.length) itemIdSelect.value = headers[0];
         show(itemMapDiv);
 
-        // 构建可选特征（默认排除当前 ItemID）
         buildFeatureCards(headers);
       } else {
         scoreHeaders=headers; scoreRows=rows; scoreLoaded=true;
@@ -168,12 +160,8 @@ function handleCSV(file, type){
         fillSelectOptions(scoreValueSelect, headers);
         fillMultiSelect(wideItemColsSelect, headers);
         show(scoreMapDiv);
-
-        // 估计全局最大分（供新题IRT离散化）
-        globalMaxScore = estimateGlobalMaxScore();
       }
 
-      console.info(`[${type}] CSV parsed:`, rows.length, 'rows');
       enableWorkflowsIfReady();
     },
     (errMsg)=>{
@@ -188,7 +176,7 @@ function handleCSV(file, type){
 itemFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'item'); });
 scoreFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'score'); });
 
-// 当 ItemID 下拉改动时，重新生成特征列表
+// ItemID 变更 -> 重新构建特征
 itemIdSelect.addEventListener('change', ()=>{
   if (itemHeaders.length) buildFeatureCards(itemHeaders);
 });
@@ -197,13 +185,14 @@ itemIdSelect.addEventListener('change', ()=>{
 function buildFeatureCards(headers){
   featureListDiv.innerHTML='';
   selectedFeatures=[];
-
   const itemIdCol = itemIdSelect.value || headers[0] || null;
+
   headers.forEach(h=>{
-    if (h===itemIdCol) return; // 排除 ItemID
+    if (h===itemIdCol) return; // skip ItemID
 
     const card=document.createElement('div');
     card.className='p-3 border border-gray-700 rounded';
+    const groupName = (window.CSS && CSS.escape) ? CSS.escape(`enc_${h}`) : `enc_${h.replace(/[^a-zA-Z0-9_-]/g,'_')}`;
     card.innerHTML=`
       <label class="flex items-center gap-2 text-sm">
         <input type="checkbox" class="featUse" checked>
@@ -211,11 +200,11 @@ function buildFeatureCards(headers){
       </label>
       <div class="mt-2 text-sm">
         <label class="mr-3">
-          <input type="radio" name="enc_${CSS.escape(h)}" value="categorical" checked>
+          <input type="radio" name="${groupName}" value="categorical" checked>
           <span>categorical</span>
         </label>
         <label>
-          <input type="radio" name="enc_${CSS.escape(h)}" value="numeric">
+          <input type="radio" name="${groupName}" value="numeric">
           <span>numeric</span>
         </label>
       </div>`;
@@ -227,8 +216,7 @@ function buildFeatureCards(headers){
     const useEl=card.querySelector('.featUse');
     useEl.addEventListener('change', ()=> record.use=useEl.checked);
 
-    // 考虑到 name 中可能含 . [] 等字符，这里用 querySelectorAll + 过滤
-    card.querySelectorAll('input[type="radio"]').forEach(r=>{
+    card.querySelectorAll(`input[name="${groupName}"]`).forEach(r=>{
       r.addEventListener('change', ()=> record.type=r.value);
     });
   });
@@ -305,7 +293,8 @@ function buildSamples(){
   // item dict
   const itemById=new Map();
   itemRows.forEach(r=>{
-    const id=r[itemIdCol]; if(id==null) return;
+    const id=r[itemIdCol];
+    if(isMissing(id)) return;
     const featObj={};
     features.forEach(f=> featObj[f.name]= r[f.name]);
     itemById.set(String(id), featObj);
@@ -323,37 +312,42 @@ function buildSamples(){
     if (!itCol || !scCol){ alert('Choose ItemID & Score (long format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol], iid=r[itCol], sc=r[scCol];
-      if (sid==null || iid==null || sc==null || sc==='') return;
+      if (isMissing(sid) || isMissing(iid) || isMissing(sc)) return;
       const feat=itemById.get(String(iid)); if(!feat) return;
-      sampleRows.push({student:String(sid), item:String(iid), feat, score:Number(sc)});
+      const scNum = safeNumber(sc, NaN);
+      if (!Number.isFinite(scNum)) return;
+      sampleRows.push({student:String(sid), item:String(iid), feat, score:scNum});
     });
   } else {
     const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
     if (itemCols.length===0){ alert('Choose item columns (wide format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol];
+      if (isMissing(sid)) return;
       itemCols.forEach(col=>{
         const val=r[col];
-        if (val==null || val==='') return;
-        const iid=col, sc=val;
+        if (isMissing(val)) return;
+        const scNum = safeNumber(val, NaN);
+        if (!Number.isFinite(scNum)) return;
+        const iid=col;
         const feat=itemById.get(String(iid)); if(!feat) return;
-        sampleRows.push({student:String(sid), item:String(iid), feat, score:Number(sc)});
+        sampleRows.push({student:String(sid), item:String(iid), feat, score:scNum});
       });
     });
   }
-  if (sampleRows.length===0){ alert('No valid samples. Check mappings.'); return null; }
+  if (sampleRows.length===0){ alert('No valid samples. Check mappings / missing values.'); return null; }
 
   // build dicts for categorical
   dicts={};
   features.forEach(f=>{
     if (f.type==='categorical'){ dicts[f.name]=[]; }
   });
-  dicts['__student__'] = []; // for personalization / kidmap-like usage
+  dicts['__student__'] = []; // personalization
   sampleRows.forEach(s=>{
     features.forEach(f=>{
       const v=s.feat[f.name];
       if (f.type==='categorical'){
-        if (!dicts[f.name].includes(v)) dicts[f.name].push(v);
+        if (!isMissing(v) && !dicts[f.name].includes(v)) dicts[f.name].push(v);
       }
     });
     if (!dicts['__student__'].includes(s.student)) dicts['__student__'].push(s.student);
@@ -374,8 +368,8 @@ function buildSamples(){
     }
     // numeric
     features.filter(f=>f.type==='numeric').forEach(f=>{
-      const val = Number(s.feat[f.name]);
-      vec[offset++] = Number.isFinite(val) ? val : 0;
+      const val = safeNumber(s.feat[f.name], 0);
+      vec[offset++] = val;
     });
     return vec;
   }
