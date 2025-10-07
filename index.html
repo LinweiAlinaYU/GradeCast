@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>GradeCast</title>
 
-  <!-- Tailwind -->
+  <!-- Favicon 🐳 -->
+  <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><text y='90' font-size='90'>🐳</text></svg>" />
+
+  <!-- Tailwind with forms plugin -->
   <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
   <script>
     tailwind.config = {
@@ -14,12 +18,12 @@
     }
   </script>
 
-  <!-- Libs -->
+  <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 
-  <!-- App -->
+  <!-- App CSS/JS -->
   <link rel="stylesheet" href="styles.css"/>
   <script defer src="charts.js"></script>
   <script defer src="app.js"></script>
@@ -27,15 +31,14 @@
 <body class="bg-gray-900 text-gray-100 min-h-screen">
 <header class="bg-gray-800">
   <div class="max-w-6xl mx-auto px-6 py-6 text-center">
-    <div class="text-3xl font-extrabold">GradeCast</div>
-    <div class="text-lg font-semibold mt-1">AI-powered Assessment Insight Platform</div>
-    <div class="text-base mt-1">(Artificial Neural Network Prediction ＋ Rasch Diagnostics)</div>
+    <h1 class="text-3xl font-extrabold">GradeCast</h1>
+    <p class="text-lg font-semibold mt-1">AI-powered Assessment Insight Platform</p>
+    <p class="text-base font-medium mt-1">(Artificial Neural Network Prediction ＋ Rasch Diagnostics)</p>
   </div>
 </header>
 
 <main class="p-6 space-y-8 max-w-6xl mx-auto">
-
-  <!-- TOC -->
+  <!-- Contents -->
   <nav class="bg-gray-800 border border-gray-700 rounded p-4">
     <h2 class="font-semibold mb-2">Contents</h2>
     <ol class="list-decimal ml-6 space-y-1 text-sm text-gray-300">
@@ -49,19 +52,19 @@
     </ol>
   </nav>
 
-  <!-- 1. UPLOAD -->
+  <!-- 1. UPLOAD & MAPPING -->
   <section id="upload" class="space-y-4">
     <h2 class="text-lg font-semibold">1. Upload & Column Mapping</h2>
-
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
       <!-- Item CSV -->
       <div class="bg-gray-800 border border-gray-700 rounded p-4">
         <h3 class="font-semibold mb-2">Item Descriptive CSV
-          <span id="itemStatus" class="ml-2 align-middle text-sm"></span>
+          <span id="itemStatus" class="ml-2 align-middle"></span>
         </h3>
         <input id="itemFile" type="file" accept=".csv" class="w-full"/>
         <p class="text-sm text-gray-400 mt-1">
-          Expected: first column = <strong>ItemID</strong>, then multiple descriptive columns.
+          Expected: first column = <strong>ItemID</strong>, then multiple descriptive columns (e.g., Construct, Format …).
         </p>
         <div id="itemMapping" class="mt-4 hidden">
           <h4 class="font-medium mb-2">Column Mapping</h4>
@@ -78,14 +81,13 @@
       <!-- Score CSV -->
       <div class="bg-gray-800 border border-gray-700 rounded p-4">
         <h3 class="font-semibold mb-2">Student Responses CSV
-          <span id="scoreStatus" class="ml-2 align-middle text-sm"></span>
+          <span id="scoreStatus" class="ml-2 align-middle"></span>
         </h3>
         <input id="scoreFile" type="file" accept=".csv" class="w-full"/>
         <p class="text-sm text-gray-400 mt-1">
-          Long: (<strong>StudentID</strong>, <strong>ItemID</strong>, <strong>Score</strong>)<br/>
+          Long: (<strong>StudentID</strong>, <strong>ItemID</strong>, <strong>Score</strong>).<br/>
           Wide: row = student, columns = items (scores in cells).
         </p>
-
         <div id="scoreMapping" class="mt-4 hidden">
           <h4 class="font-medium mb-2">Column Mapping</h4>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -125,26 +127,30 @@
     </div>
 
     <div class="text-xs text-gray-400">
-      <span>Item file:</span> <span id="itemFileName">-</span> |
-      <span>Score file:</span> <span id="scoreFileName">-</span>
+      <span>Item file:</span>
+      <span id="itemFileName">-</span> |
+      <span>Score file:</span>
+      <span id="scoreFileName">-</span>
     </div>
   </section>
 
-  <!-- 2. FEATURES -->
+  <!-- 2. FEATURE SELECTION -->
   <section id="features" class="space-y-4 opacity-50 pointer-events-none" aria-disabled="true">
     <h2 class="text-lg font-semibold">2. Feature Selection (for ANN)</h2>
     <div id="featuresWrap" class="bg-gray-800 border border-gray-700 rounded p-4">
       <p class="text-sm text-gray-400">
         Columns from the Item CSV (excluding ItemID) will appear below. Select which to use and their encoding.
       </p>
-      <div id="featureList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
+      <div id="featureList"
+           class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3"></div>
     </div>
   </section>
 
-  <!-- 3. CONFIG -->
+  <!-- 3. MODEL CONFIG & VALIDATION -->
   <section id="config" class="space-y-4 opacity-50 pointer-events-none" aria-disabled="true">
     <h2 class="text-lg font-semibold">3. Model Structure & Validation</h2>
     <div id="configWrap" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Hidden layers -->
       <div class="bg-gray-800 border border-gray-700 rounded p-4">
         <h3 class="font-semibold mb-2">Model Structure</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -171,6 +177,7 @@
         </div>
       </div>
 
+      <!-- Validation config -->
       <div class="bg-gray-800 border border-gray-700 rounded p-4">
         <h3 class="font-semibold mb-2">Validation Configs</h3>
         <div id="validationList" class="flex flex-wrap gap-3">
@@ -193,7 +200,7 @@
     </div>
   </section>
 
-  <!-- 4. TRAIN -->
+  <!-- 4. START TRAINING -->
   <section id="train" class="space-y-3 opacity-50 pointer-events-none" aria-disabled="true">
     <h2 class="text-lg font-semibold">4. Start Training</h2>
     <div id="trainWrap">
@@ -207,7 +214,7 @@
     </div>
   </section>
 
-  <!-- 5. RESULTS -->
+  <!-- 5. TRAINING RESULTS -->
   <section id="results" class="space-y-4 opacity-50 pointer-events-none" aria-disabled="true">
     <h2 class="text-lg font-semibold">5. Training Results</h2>
     <div id="resultsWrap">
@@ -218,60 +225,68 @@
     </div>
   </section>
 
-  <!-- 6. PREDICT -->
+  <!-- 6. PREDICT NEW ITEMS -->
   <section id="predict" class="space-y-4 opacity-50 pointer-events-none" aria-disabled="true">
     <h2 class="text-lg font-semibold">6. Predict New Items</h2>
     <div id="predictWrap" class="bg-gray-800 border border-gray-700 rounded p-4 space-y-3">
       <div>
-        <label class="block text-sm font-medium">
-          Upload new Item Descriptive CSV (same structure)
-          <span id="predictItemStatus" class="ml-2 text-sm align-middle"></span>
+        <label class="block text-sm font-medium">Upload new Item Descriptive CSV (same structure)
+          <span id="predictStatus" class="ml-2 align-middle"></span>
         </label>
         <input id="predictItemFile" type="file" accept=".csv" class="w-full"/>
       </div>
-      <div class="flex items-center gap-3">
-        <button id="predictBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Run Prediction</button>
-        <button id="exportPredictBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Export Prediction CSV</button>
-      </div>
-      <div id="predictProgress" class="hidden">
-        <div class="text-sm mb-1" id="predictProgressText">Predicting...</div>
-        <div class="w-full bg-gray-700 rounded h-2">
-          <div id="predictProgressBar" class="h-2 bg-blue-500 rounded transition-width" style="width:0%"></div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-3">
+          <button id="predictBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Run Prediction</button>
+          <button id="exportPredictBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Export Prediction CSV</button>
+        </div>
+        <div id="predictProgWrap" class="hidden">
+          <div class="text-sm" id="predictProgText">Predicting…</div>
+          <div class="w-full bg-gray-700 rounded h-2">
+            <div id="predictProgBar" class="h-2 bg-blue-500 rounded transition-width" style="width:0%"></div>
+          </div>
         </div>
       </div>
       <div id="predictResults" class="mt-4"></div>
     </div>
   </section>
 
-  <!-- 7. IRT -->
+  <!-- 7. IRT CALIBRATION -->
   <section id="irt" class="space-y-4 opacity-50 pointer-events-none" aria-disabled="true">
     <h2 class="text-lg font-semibold">7. IRT Calibration & Wright Map</h2>
-    <div id="irtWrap" class="flex items-center gap-3 text-sm flex-wrap">
-      <label class="flex items-center gap-2">
-        <span>IRT Model</span>
-        <select id="irtModelSelect" class="bg-gray-700 border border-gray-600 rounded px-2 py-1">
-          <option value="pcm">PCM</option>
-          <option value="rsm">RSM</option>
-        </select>
-      </label>
-      <button id="computeIRTBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">
-        Compute IRT from Observed Scores
-      </button>
-      <button id="exportIRTBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded">
-        Export IRT Table CSV
-      </button>
-    </div>
+    <div id="irtWrap" class="text-sm space-y-3">
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="flex items-center gap-2">
+          <span>IRT Model</span>
+          <select id="irtModelSelect" class="bg-gray-700 border border-gray-600 rounded px-2 py-1">
+            <option value="pcm">PCM</option>
+            <option value="rsm">RSM</option>
+          </select>
+        </label>
 
-    <div id="irtProgress" class="hidden">
-      <div class="text-sm mb-1" id="irtProgressText">Calibrating...</div>
-      <div class="w-full bg-gray-700 rounded h-2">
-        <div id="irtProgressBar" class="h-2 bg-purple-500 rounded transition-width" style="width:0%"></div>
+        <label class="flex items-center gap-2">
+          <span>Source</span>
+          <select id="irtSourceSelect" class="bg-gray-700 border border-gray-600 rounded px-2 py-1">
+            <option value="pred">Predictions (new items)</option>
+            <option value="obs">Observed scores</option>
+          </select>
+        </label>
+
+        <button id="computeIRTBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Compute IRT</button>
+        <button id="exportIRTBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded">Export IRT Table CSV</button>
       </div>
-    </div>
 
-    <div id="irtSummary" class="text-sm mt-2"></div>
-    <div id="wrightChart" class="mt-3" style="height:380px;"></div>
-    <div id="irtTableWrap" class="mt-3"></div>
+      <div id="irtProgWrap" class="hidden">
+        <div class="text-sm" id="irtProgText">Calibrating…</div>
+        <div class="w-full bg-gray-700 rounded h-2">
+          <div id="irtProgBar" class="h-2 bg-purple-500 rounded transition-width" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div id="irtSummary" class="text-sm"></div>
+      <div id="wrightChart" class="mt-3" style="height:360px;"></div>
+      <div id="irtTableWrap" class="mt-3"></div>
+    </div>
   </section>
 </main>
 </body>
