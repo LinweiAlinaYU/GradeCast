@@ -1,5 +1,5 @@
 /***** app.js *****/
-import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, downloadBlob } from './charts.js';
+import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, exportPlotPNG, downloadBlob } from './charts.js';
 
 const $ = (s)=>document.querySelector(s);
 
@@ -40,40 +40,43 @@ const exportTestBtn = $('#exportTestBtn');
 const predictBtn = $('#predictBtn');
 const exportPredictBtn = $('#exportPredictBtn');
 const predictResultsDiv = $('#predictResults');
-const predictItemStatus = $('#predictItemStatus');
-const predictProgress = $('#predictProgress');
-const predictProgressText = $('#predictProgressText');
-const predictProgressBar = $('#predictProgressBar');
+const predictProgWrap = $('#predictProgWrap');
+const predictProgBar = $('#predictProgBar');
+const predictProgText = $('#predictProgText');
 
 const irtSummary = $('#irtSummary');
 const irtTableWrap = $('#irtTableWrap');
 const exportIRTBtn = $('#exportIRTBtn');
 const computeIRTBtn = $('#computeIRTBtn');
-const irtProgress = $('#irtProgress');
-const irtProgressText = $('#irtProgressText');
-const irtProgressBar = $('#irtProgressBar');
+const irtModelSelect = $('#irtModelSelect');
+const irtSourceSelect = $('#irtSourceSelect');
+const irtProgWrap = $('#irtProgWrap');
+const irtProgBar = $('#irtProgBar');
+const irtProgText = $('#irtProgText');
 
 const itemStatus  = document.getElementById('itemStatus');
 const scoreStatus = document.getElementById('scoreStatus');
+const predictStatus = document.getElementById('predictStatus');
 
 // ---------- state ----------
 let itemRows=[], itemHeaders=[];
 let scoreRows=[], scoreHeaders=[];
-let selectedFeatures = []; // [{name, type, use, card}]
+let selectedFeatures = []; // [{name, type:'categorical'|'numeric', use:true, card:HTMLElement}]
 let dicts=null;            // one-hot dicts for categorical + __student__
 let inputDim=0;
 
-let trainedModels=[];      // [{config, model, metrics, dicts, testRows:[], best:boolean}]
+let trainedModels=[];      // [{config, model, metrics, dicts, testRows:[{act,pred,student,item}], best:boolean}]
 let bestModelIndex=-1;
 
 let itemLoaded=false, scoreLoaded=false;
-let scoreMaxGlobal=1;      // 训练数据的最大分值（用于预测→IRT 的分档）
-let lastPredictRows=[];    // 预测 (student,item,pred)
-let lastIRTRows=[];        // IRT 表格缓存
+
+let lastPredictRows=[]; // {student,item,pred}
+let lastIRTItemsRows=[]; // for export
+let globalMaxScore=1;   // 从训练数据推断的最大得分（用于新题IRT）
 
 // ---------- helpers ----------
-function show(el){ el.classList.remove('hidden'); }
-function hide(el){ el.classList.add('hidden'); }
+const show = (el)=>el.classList.remove('hidden');
+const hide = (el)=>el.classList.add('hidden');
 
 function enableWorkflowsIfReady(){
   if(itemLoaded && scoreLoaded){
@@ -83,11 +86,6 @@ function enableWorkflowsIfReady(){
       el?.removeAttribute('aria-disabled');
     });
   }
-}
-
-function setStatus(el, ok, msg=''){
-  el.textContent = ok ? `✅ ${msg}` : `❌ ${msg}`;
-  el.className = 'ml-2 text-sm ' + (ok ? 'text-green-400' : 'text-red-500');
 }
 
 function fillSelectOptions(selectEl, options, placeholder){
@@ -112,6 +110,18 @@ function fillMultiSelect(selectEl, options){
   });
 }
 
+// 将 '.' / '' 视为缺失；尽可能把数值转成 Number
+function cleanRow(row){
+  const out={};
+  for (const [k,v] of Object.entries(row)){
+    if (v==='' || v===null || v===undefined || v==='.') { out[k]=null; continue; }
+    if (typeof v==='number') { out[k]=v; continue; }
+    const n = Number(v);
+    out[k] = Number.isFinite(n) ? n : v;
+  }
+  return out;
+}
+
 function parseCSV(file, onComplete, onError){
   Papa.parse(file, {
     header:true, dynamicTyping:false, skipEmptyLines:true,
@@ -120,75 +130,80 @@ function parseCSV(file, onComplete, onError){
         console.error(res.errors);
         onError?.(res.errors[0].message || 'CSV parse error');
       } else {
-        const headers = res.meta.fields||[];
-        const rows = (res.data||[]).map(row=>{
-          // 清洗：把 "." 或空字符串视为 null
-          const r={};
-          headers.forEach(h=>{
-            const v = row[h];
-            if (v===undefined || v===null) { r[h]=null; return; }
-            const s=String(v).trim();
-            if (s==='' || s==='.') { r[h]=null; return; }
-            r[h]=s;
-          });
-          return r;
-        });
-        onComplete(headers, rows);
+        const fields = res.meta.fields||[];
+        const rows = (res.data||[]).map(cleanRow);
+        onComplete(fields, rows);
       }
     }
   });
 }
 
-// ---------- upload handlers ----------
 function handleCSV(file, type){
   const tgt = (type==='item') ? itemStatus : scoreStatus;
-  tgt.textContent = '⏳'; tgt.className='ml-2 text-yellow-300 align-middle';
+  tgt.textContent = '⏳';
+  tgt.className   = 'ml-2 text-yellow-300 align-middle';
 
   parseCSV(file,
     (headers,rows)=>{
-      setStatus(tgt,true,'Loaded');
+      tgt.textContent = '✅';
+      tgt.className   = 'ml-2 text-green-400 align-middle';
+
       if(type==='item'){
         itemHeaders=headers; itemRows=rows; itemLoaded=true;
         $('#itemFileName').textContent=file.name;
+
+        // 自动将第一列作为 ItemID（可手动改）
         fillSelectOptions(itemIdSelect, headers);
-        if (headers.length) itemIdSelect.value = headers[0]; // 默认第一列
+        if (headers.length) itemIdSelect.value = headers[0];
         show(itemMapDiv);
+
+        // 构建可选特征（默认排除当前 ItemID）
         buildFeatureCards(headers);
       } else {
         scoreHeaders=headers; scoreRows=rows; scoreLoaded=true;
         $('#scoreFileName').textContent=file.name;
+
         fillSelectOptions(studentIdSelect, headers);
         fillSelectOptions(scoreItemIdSelect, headers);
         fillSelectOptions(scoreValueSelect, headers);
         fillMultiSelect(wideItemColsSelect, headers);
         show(scoreMapDiv);
+
+        // 估计全局最大分（供新题IRT离散化）
+        globalMaxScore = estimateGlobalMaxScore();
       }
+
       console.info(`[${type}] CSV parsed:`, rows.length, 'rows');
       enableWorkflowsIfReady();
     },
-    (errMsg)=> setStatus(tgt,false,errMsg)
+    (errMsg)=>{
+      tgt.textContent = '❌';
+      tgt.className   = 'ml-2 text-red-500 align-middle';
+      alert('CSV parse error: '+errMsg);
+    }
   );
 }
 
+// 绑定上传
 itemFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'item'); });
 scoreFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'score'); });
 
-// ---------- features ----------
+// 当 ItemID 下拉改动时，重新生成特征列表
 itemIdSelect.addEventListener('change', ()=>{
   if (itemHeaders.length) buildFeatureCards(itemHeaders);
 });
 
+// ---------- Feature selection UI ----------
 function buildFeatureCards(headers){
   featureListDiv.innerHTML='';
   selectedFeatures=[];
-  const itemIdCol = itemIdSelect.value || headers[0] || null;
 
+  const itemIdCol = itemIdSelect.value || headers[0] || null;
   headers.forEach(h=>{
-    if (h===itemIdCol) return;
+    if (h===itemIdCol) return; // 排除 ItemID
 
     const card=document.createElement('div');
     card.className='p-3 border border-gray-700 rounded';
-    const safe = CSS.escape(h);
     card.innerHTML=`
       <label class="flex items-center gap-2 text-sm">
         <input type="checkbox" class="featUse" checked>
@@ -196,11 +211,11 @@ function buildFeatureCards(headers){
       </label>
       <div class="mt-2 text-sm">
         <label class="mr-3">
-          <input type="radio" name="enc_${safe}" value="categorical" checked>
+          <input type="radio" name="enc_${CSS.escape(h)}" value="categorical" checked>
           <span>categorical</span>
         </label>
         <label>
-          <input type="radio" name="enc_${safe}" value="numeric">
+          <input type="radio" name="enc_${CSS.escape(h)}" value="numeric">
           <span>numeric</span>
         </label>
       </div>`;
@@ -211,13 +226,15 @@ function buildFeatureCards(headers){
 
     const useEl=card.querySelector('.featUse');
     useEl.addEventListener('change', ()=> record.use=useEl.checked);
-    card.querySelectorAll(`input[name="enc_${safe}"]`).forEach(r=>{
+
+    // 考虑到 name 中可能含 . [] 等字符，这里用 querySelectorAll + 过滤
+    card.querySelectorAll('input[type="radio"]').forEach(r=>{
       r.addEventListener('change', ()=> record.type=r.value);
     });
   });
 }
 
-// ---------- layers ----------
+// ---------- Layers ----------
 function addLayerRow(units=32, act='tanh'){
   const row=document.createElement('div');
   row.className='flex items-center gap-2';
@@ -244,7 +261,7 @@ addLayerBtn.addEventListener('click', ()=> addLayerRow());
 addLayerRow(32,'tanh');
 addLayerRow(16,'relu');
 
-// ---------- validations ----------
+// ---------- Validation blocks ----------
 const valTemplate = validationList.firstElementChild.cloneNode(true);
 addValidationBtn.addEventListener('click', ()=>{
   const b = valTemplate.cloneNode(true);
@@ -272,7 +289,7 @@ addValidationBtn.addEventListener('click', ()=>{
   });
 })();
 
-// ---------- build samples ----------
+// ---------- Build samples + encoder ----------
 function buildSamples(){
   if (itemRows.length===0 || scoreRows.length===0){
     alert('Please upload both CSVs first.');
@@ -281,10 +298,11 @@ function buildSamples(){
   const itemIdCol = itemIdSelect.value;
   if (!itemIdCol){ alert('Please map ItemID.'); return null; }
 
+  // Selected features
   const features = selectedFeatures.filter(f=>f.use);
   if (features.length===0){ alert('Select at least one feature.'); return null; }
 
-  // Item dict
+  // item dict
   const itemById=new Map();
   itemRows.forEach(r=>{
     const id=r[itemIdCol]; if(id==null) return;
@@ -305,38 +323,38 @@ function buildSamples(){
     if (!itCol || !scCol){ alert('Choose ItemID & Score (long format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol], iid=r[itCol], sc=r[scCol];
-      if (sid==null || iid==null || sc==null) return;
-      const num = Number(sc);
-      if (!isFinite(num)) return;
+      if (sid==null || iid==null || sc==null || sc==='') return;
       const feat=itemById.get(String(iid)); if(!feat) return;
-      sampleRows.push({student:String(sid), item:String(iid), feat, score:num});
+      sampleRows.push({student:String(sid), item:String(iid), feat, score:Number(sc)});
     });
   } else {
     const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
     if (itemCols.length===0){ alert('Choose item columns (wide format).'); return null; }
     scoreRows.forEach(r=>{
-      const sid=r[studentCol]; if (sid==null) return;
+      const sid=r[studentCol];
       itemCols.forEach(col=>{
         const val=r[col];
-        const num=Number(val);
-        if (!isFinite(num)) return; // 过滤 ".", "", null
-        const iid=col;
+        if (val==null || val==='') return;
+        const iid=col, sc=val;
         const feat=itemById.get(String(iid)); if(!feat) return;
-        sampleRows.push({student:String(sid), item:String(iid), feat, score:num});
+        sampleRows.push({student:String(sid), item:String(iid), feat, score:Number(sc)});
       });
     });
   }
   if (sampleRows.length===0){ alert('No valid samples. Check mappings.'); return null; }
 
-  // build dicts (categorical only + __student__)
+  // build dicts for categorical
   dicts={};
-  features.forEach(f=>{ if (f.type==='categorical'){ dicts[f.name]=[]; } });
-  dicts['__student__'] = [];
+  features.forEach(f=>{
+    if (f.type==='categorical'){ dicts[f.name]=[]; }
+  });
+  dicts['__student__'] = []; // for personalization / kidmap-like usage
   sampleRows.forEach(s=>{
     features.forEach(f=>{
-      if (f.type!=='categorical') return;
       const v=s.feat[f.name];
-      if (!dicts[f.name].includes(v)) dicts[f.name].push(v);
+      if (f.type==='categorical'){
+        if (!dicts[f.name].includes(v)) dicts[f.name].push(v);
+      }
     });
     if (!dicts['__student__'].includes(s.student)) dicts['__student__'].push(s.student);
   });
@@ -344,19 +362,20 @@ function buildSamples(){
   inputDim = Object.entries(dicts).reduce((acc,[,arr])=>acc+arr.length,0) +
              features.filter(f=>f.type==='numeric').length;
 
-  // 编码器
   function encodeX(s){
     const vec = new Array(inputDim).fill(0);
     let offset=0;
+    // categorical one-hot
     for (const [k,arr] of Object.entries(dicts)){
       const val=(k==='__student__')? s.student : s.feat[k];
       const i=arr.indexOf(val);
       if (i>=0) vec[offset+i]=1;
       offset+=arr.length;
     }
+    // numeric
     features.filter(f=>f.type==='numeric').forEach(f=>{
       const val = Number(s.feat[f.name]);
-      vec[offset++] = isFinite(val) ? val : 0;
+      vec[offset++] = Number.isFinite(val) ? val : 0;
     });
     return vec;
   }
@@ -364,14 +383,10 @@ function buildSamples(){
   const X=[], y=[];
   sampleRows.forEach(s=>{ X.push(encodeX(s)); y.push([s.score]); });
 
-  // 记录训练最大分值（用于预测→IRT）
-  scoreMaxGlobal = Math.max(...sampleRows.map(s=>s.score));
-  if (!isFinite(scoreMaxGlobal) || scoreMaxGlobal<=0) scoreMaxGlobal = 1;
-
   return {X,y,sampleRows,features};
 }
 
-// ---------- training ----------
+// ---------- 训练 ----------
 startBtn.addEventListener('click', async ()=>{
   const built = buildSamples(); if(!built) return;
   const {X,y,sampleRows} = built;
@@ -445,6 +460,7 @@ startBtn.addEventListener('click', async ()=>{
       const pred=Array.from(predT.dataSync()); const actual=Array.from(Yte.dataSync());
       metrics = computeMetrics(actual, pred);
 
+      // collect test rows for export
       cardTestRows = testIdx.map((k,ii)=>({
         student: sampleRows[k].student,
         item: sampleRows[k].item,
@@ -474,6 +490,7 @@ startBtn.addEventListener('click', async ()=>{
       }
       metrics=computeMetrics(acts,preds);
       renderResultCard({method,ratio,metrics,histLoss:[],histVal:[],actual:acts,pred:preds});
+      // LOOCV 不保留模型
     }
 
     trainedModels.push({config:{method,ratio}, model:(method==='holdout'?model:null), metrics, dicts, testRows:cardTestRows});
@@ -485,30 +502,22 @@ startBtn.addEventListener('click', async ()=>{
   startBtn.disabled=false;
 });
 
-// ---------- metrics + render ----------
+// ---------- Metrics + Render ----------
 function computeMetrics(actual, pred){
-  const n=actual.length;
-  if (n===0) return {MAE:0,MSE:0,RMSE:0,R2:0};
-  let mae=0,mse=0,sumY=0;
-  for (let i=0;i<n;i++){
-    const a=Number(actual[i]); const p=Number(pred[i]);
-    if (!isFinite(a) || !isFinite(p)) continue;
-    const e=p-a; mae+=Math.abs(e); mse+=e*e; sumY+=a;
-  }
-  mae/=n; mse/=n; const rmse=Math.sqrt(Math.max(mse,0));
-  const meanY=sumY/n;
-  let sst=0; for (let i=0;i<n;i++){ const a=Number(actual[i]); if (isFinite(a)) sst+=(a-meanY)**2; }
-  const r2 = sst>0 ? 1 - (mse*n)/sst : 0;
+  const n=actual.length||1; let mae=0,mse=0,sumY=0;
+  for (let i=0;i<n;i++){ const e=(pred[i]??0)-(actual[i]??0); mae+=Math.abs(e); mse+=e*e; sumY+=actual[i]??0; }
+  mae/=n; mse/=n; const rmse=Math.sqrt(mse); const meanY=sumY/n;
+  let sst=0; for (let i=0;i<n;i++){ const d=(actual[i]??0)-meanY; sst+=d*d; }
+  const r2 = sst>0 ? 1 - (mse*n)/sst : 1;
   return {MAE:+mae.toFixed(3), MSE:+mse.toFixed(3), RMSE:+rmse.toFixed(3), R2:+r2.toFixed(3)};
 }
-
 function renderResultCard({method,ratio,metrics,histLoss,histVal,actual,pred}){
   const card=document.createElement('div');
   card.className='p-4 bg-gray-800 border border-gray-700 rounded';
   const title=document.createElement('h3'); title.className='font-semibold mb-2';
-  title.textContent = (method==='holdout')
-    ? `Holdout (Training ${Math.round(ratio*100)}% / Testing ${100-Math.round(ratio*100)}%)`
-    : 'LOOCV';
+  if (method==='holdout'){
+    title.textContent=`Holdout (Training ${Math.round(ratio*100)}% / Testing ${100-Math.round(ratio*100)}%)`;
+  } else title.textContent='LOOCV';
   card.appendChild(title);
 
   const ul=document.createElement('ul');
@@ -543,11 +552,21 @@ exportTestBtn.addEventListener('click', ()=>{
   downloadBlob(blob, 'test_predictions.csv');
 });
 
-// ---------- Predict ----------
+// ---------- 预测 ----------
 predictFileInput.addEventListener('change', e=>{
   const f=e.target.files[0];
-  if (!f){ setStatus(predictItemStatus,false,'No file'); return; }
-  setStatus(predictItemStatus,true,'Ready');
+  if (!f) return;
+  // 只解析检查表头，实际预测时再读一次
+  predictStatus.textContent='⏳';
+  predictStatus.className='ml-2 text-yellow-300 align-middle';
+  parseCSV(f, (headers,rows)=>{
+    predictStatus.textContent='✅';
+    predictStatus.className='ml-2 text-green-400 align-middle';
+  }, (err)=>{
+    predictStatus.textContent='❌';
+    predictStatus.className='ml-2 text-red-500 align-middle';
+    alert('CSV parse error: '+err);
+  });
 });
 
 predictBtn.addEventListener('click', ()=>{
@@ -555,10 +574,10 @@ predictBtn.addEventListener('click', ()=>{
   if (!best || !best.model){ alert('Train (holdout) first.'); return; }
   const file=predictFileInput.files[0]; if(!file){ alert('Upload predict CSV'); return; }
 
-  parseCSV(file,(headers,rows)=>{
-    // status
-    setStatus(predictItemStatus,true,'Loaded');
+  // 进度条
+  show(predictProgWrap); predictProgBar.style.width='0%'; predictProgText.textContent='Predicting…';
 
+  parseCSV(file,(headers,rows)=>{
     const itemIdCol = itemIdSelect.value;
     const features = selectedFeatures.filter(f=>f.use);
     const dictsLocal = best.dicts;
@@ -573,41 +592,32 @@ predictBtn.addEventListener('click', ()=>{
         if (i>=0) vec[offset+i]=1;
         offset+=arr.length;
       }
-      features.filter(f=>f.type==='numeric').forEach(f=>{
-        const num = Number(featObj[f.name]); vec[offset++]= isFinite(num)? num : 0;
-      });
+      features.filter(f=>f.type==='numeric').forEach(f=>{ vec[offset++]=Number(featObj[f.name])||0; });
       return vec;
     }
-
     const students = dictsLocal['__student__']||[];
     const model=best.model;
     const predicts=[];
-    show(predictProgress);
-    predictResultsDiv.innerHTML='';
-    predictProgressBar.style.width='0%';
-    predictProgressText.textContent='Predicting...';
-
-    const total = rows.length * students.length;
-    let done = 0;
-
+    const N = rows.length;
     rows.forEach((r,ri)=>{
       const iid=r[itemIdCol]; if (iid==null) return;
       const feat={}; features.forEach(f=> feat[f.name]=r[f.name]);
       students.forEach(sid=>{
         const x=encode(feat, sid);
         const p=model.predict(tf.tensor2d([x])).dataSync()[0];
-        predicts.push({student:sid, item:String(iid), pred:p});
-        done++;
-        if (done%100===0 || done===total){
-          predictProgressBar.style.width = Math.round(done/total*100)+'%';
-        }
+        predicts.push({student:sid, item:String(iid), pred:Number.isFinite(p)?p:0});
       });
+      if ((ri+1)%20===0 || ri===N-1){
+        const pct = Math.round(((ri+1)/N)*100);
+        predictProgBar.style.width = pct+'%';
+        predictProgText.textContent = `Predicting… ${pct}%`;
+      }
     });
-
     lastPredictRows = predicts;
 
-    // preview
-    const info=document.createElement('div'); info.className='text-sm text-gray-300 mt-2';
+    // 预览
+    predictResultsDiv.innerHTML='';
+    const info=document.createElement('div'); info.className='text-sm text-gray-300';
     info.textContent=`Predicted pairs: ${predicts.length} (showing up to 100 below)`;
     predictResultsDiv.appendChild(info);
 
@@ -616,16 +626,14 @@ predictBtn.addEventListener('click', ()=>{
     const tb=tbl.querySelector('tbody');
     predicts.slice(0,100).forEach(r=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${(+r.pred).toFixed(3)}</td>`;
+      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${r.pred.toFixed(3)}</td>`;
       tb.appendChild(tr);
     });
     predictResultsDiv.appendChild(tbl);
 
-    // 用预测对 “新 Item（I1, I2, …）” 进行 IRT
-    const pairs = predictionsToPairs(predicts, scoreMaxGlobal);
-    runIRT_JML_fromPairs_poly(pairs, {source:'predictions'});
-    hide(predictProgress);
-  });
+    hide(predictProgWrap);
+
+  }, (err)=>{ hide(predictProgWrap); alert('CSV parse error: '+err); });
 });
 
 exportPredictBtn.addEventListener('click', ()=>{
@@ -635,22 +643,62 @@ exportPredictBtn.addEventListener('click', ()=>{
   downloadBlob(blob, 'predictions.csv');
 });
 
-function predictionsToPairs(predicts, maxScore){
-  // 把连续预测值映射为 0..maxScore 的离散分值（四舍五入并截断）
-  const clampRound = v=> Math.max(0, Math.min(maxScore, Math.round(v)));
-  return predicts.map(p=>({ student:String(p.student), item:String(p.item), score: clampRound(Number(p.pred)||0) }));
-}
-
-// ---------- IRT from observed scores ----------
+// ---------- IRT 入口（支持 Pred/Observed） ----------
 computeIRTBtn.addEventListener('click', ()=>{
-  const pairs = buildObservedPairs();
-  if (!pairs) return;
-  runIRT_JML_fromPairs_poly(pairs, {source:'observed'});
+  const src = irtSourceSelect.value; // 'pred' | 'obs'
+  if (src==='pred'){
+    const pairs = buildPairsFromPredictions();
+    if (!pairs){ alert('Run prediction first.'); return; }
+    runIRT_JML_fromPairs_poly(pairs);
+  } else {
+    const pairs = buildObservedPairs();
+    if (!pairs) return;
+    runIRT_JML_fromPairs_poly(pairs);
+  }
 });
 
+// 从训练数据估计全局最大分值 m（0…m）
+function estimateGlobalMaxScore(){
+  const fmt = scoreFormatSelect.value;
+  if (fmt==='long'){
+    const scCol = scoreValueSelect.value;
+    if (!scCol) return 1;
+    let mx = 1;
+    scoreRows.forEach(r=>{
+      const v=r[scCol];
+      if (Number.isFinite(v)) mx = Math.max(mx, v);
+    });
+    return Math.max(1, Math.floor(mx));
+  } else {
+    // wide: 扫描选中的题目列
+    const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
+    if (!itemCols.length) return 1;
+    let mx = 1;
+    scoreRows.forEach(r=>{
+      itemCols.forEach(c=>{
+        const v=r[c];
+        if (Number.isFinite(v)) mx = Math.max(mx, v);
+      });
+    });
+    return Math.max(1, Math.floor(mx));
+  }
+}
+
+// 由预测结果构建 pairs（将连续预测值离散化到 [0..m]）
+function buildPairsFromPredictions(){
+  if (!lastPredictRows.length) return null;
+  const m = Math.max(1, globalMaxScore|0);
+  const pairs = lastPredictRows.map(p=>{
+    const s = Math.min(m, Math.max(0, Math.round(p.pred)));
+    return { student:String(p.student), item:String(p.item), score:s };
+  });
+  return pairs;
+}
+
+// 由观测分数构建 pairs
 function buildObservedPairs(){
-  if (scoreRows.length===0){
-    alert('Please upload Student Responses CSV first.'); return null;
+  if (itemRows.length===0 || scoreRows.length===0){
+    alert('Please upload both CSVs first.'); return null;
   }
   const fmt = scoreFormatSelect.value;
   const studentCol = studentIdSelect.value;
@@ -663,20 +711,18 @@ function buildObservedPairs(){
     if (!itemIdCol || !scoreCol){ alert('Choose ItemID & Score (long format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol], iid=r[itemIdCol], sc=r[scoreCol];
-      const num = Number(sc);
-      if (sid==null || iid==null || !isFinite(num)) return;
-      pairs.push({student:String(sid), item:String(iid), score:num});
+      if (sid==null || iid==null || sc==null || sc==='') return;
+      pairs.push({student:String(sid), item:String(iid), score:Number(sc)});
     });
   } else {
     const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
     if (itemCols.length===0){ alert('Choose item columns (wide format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol];
-      if (sid==null) return;
       itemCols.forEach(col=>{
-        const num=Number(r[col]);
-        if (!isFinite(num)) return;
-        pairs.push({student:String(sid), item:String(col), score:num});
+        const val=r[col];
+        if (val==null || val==='') return;
+        pairs.push({student:String(sid), item:String(col), score:Number(val)});
       });
     });
   }
@@ -684,54 +730,48 @@ function buildObservedPairs(){
   return pairs;
 }
 
-// ---------- IRT (PCM/RSM) ----------
+// ---------- IRT (PCM/RSM 近似 JML) ----------
 function categoryProbs(theta, beta, deltaArr, m){
   // m = 最大得分；deltaArr 长度≥m
   const s=new Array(m+1).fill(0);
   for(let k=0;k<=m;k++){
     let logit=k*(theta-beta);
     if(k>0){
-      const sumΔ=deltaArr.slice(0,k).reduce((a,x)=>a+x,0);
+      let sumΔ=0;
+      for(let j=0;j<k;j++) sumΔ+=deltaArr[j]||0;
       logit-=sumΔ;
     }
-    // 裁剪避免上溢
-    logit = Math.max(-10, Math.min(10, logit));
     s[k]=Math.exp(logit);
   }
-  const Z=s.reduce((a,x)=>a+x,0);
-  return s.map(x=>x/(Z||1e-8));
+  const Z=s.reduce((a,x)=>a+x,0)||1;
+  return s.map(x=>x/Z);
 }
+const clamp01 = (x)=>Math.max(0, Math.min(1, x));
 
-function phiCdf(z){
+function phiCdf(z){              // 标准正态 CDF 近似
   const t=1/(1+0.2316419*Math.abs(z));
   const d=Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
   const p=1-d*(0.319381530*t-0.356563782*t**2+1.781477937*t**3-1.821255978*t**4+1.330274429*t**5);
   return z>=0?p:1-p;
 }
 
-function runIRT_JML_fromPairs_poly(pairs, {source}={}){
-  const modelType=document.getElementById('irtModelSelect').value; // 'pcm' | 'rsm'
-  if (!pairs?.length){ alert('No pairs for IRT.'); return; }
+function runIRT_JML_fromPairs_poly(pairs){
+  const modelType=irtModelSelect.value; // 'pcm' | 'rsm'
 
   // 进度条
-  show(irtProgress);
-  irtProgressBar.style.width='0%';
-  irtProgressText.textContent = source==='predictions' ? 'Calibrating from predictions...' : 'Calibrating from observed scores...';
+  show(irtProgWrap); irtProgBar.style.width='0%'; irtProgText.textContent='Calibrating…';
 
   const students=[...new Set(pairs.map(p=>p.student))];
   const items   =[...new Set(pairs.map(p=>p.item))];
 
-  // 每题最大类别
+  // 每题最大类别（从数据推断）
   const stepsByItem={};
-  if (source==='predictions'){
-    // 预测来自训练标度，统一使用训练的 maxScoreGlobal
-    items.forEach(it=> stepsByItem[it]=Math.max(1, Math.round(scoreMaxGlobal)) );
-  } else {
-    items.forEach(it=>{
-      const ms = Math.max(...pairs.filter(p=>p.item===it).map(p=>p.score));
-      stepsByItem[it] = Math.max(1, isFinite(ms)? Math.round(ms) : 1);
-    });
-  }
+  let processed=0;
+  items.forEach(it=>{
+    const arr = pairs.filter(p=>p.item===it).map(p=>p.score);
+    const m = Math.max(1, ...arr.map(v=>Number.isFinite(v)?v:0));
+    stepsByItem[it]=m;
+  });
   const maxSteps=Math.max(...Object.values(stepsByItem));
 
   // 参数
@@ -741,27 +781,25 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   let delta_pcm={}; items.forEach(it=>delta_pcm[it]=Array.from({length:stepsByItem[it]},()=>0));
 
   // ---------- JML 迭代 ----------
-  const maxIter=100,tol=1e-4;
+  const maxIter=80,tol=1e-4;
   for(let iter=0;iter<maxIter;iter++){
     let maxΔ=0;
 
     // -- 更新 θ
     students.forEach(s=>{
       let g=0,I=0;
-      const subset = pairs.filter(p=>p.student===s);
-      subset.forEach(p=>{
+      pairs.forEach(p=>{
+        if (p.student!==s) return;
         const m=stepsByItem[p.item];
         const pr=categoryProbs(theta[s],beta[p.item],
                                (modelType==='pcm'?delta_pcm[p.item]:delta_rsm),
                                m);
         const Ex = pr.reduce((a,pj,j)=>a+j*pj,0);
-        const Var= Math.max( pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0), 1e-6);
-        g += (p.score-Ex);
+        const Var= pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0);
+        g += ((p.score??0)-Ex);
         I += Var;
       });
-      if(I>1e-8){ const d=g/I; theta[s]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
-      // 裁剪避免发散
-      theta[s] = Math.max(-5, Math.min(5, theta[s]));
+      if(I>1e-6){ const d=g/I; theta[s]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
     });
     const mθ=students.reduce((a,s)=>a+theta[s],0)/students.length;
     students.forEach(s=>theta[s]-=mθ);
@@ -769,19 +807,18 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
     // -- 更新 β
     items.forEach(it=>{
       let g=0,I=0;
-      const subset = pairs.filter(p=>p.item===it);
-      subset.forEach(p=>{
+      pairs.forEach(p=>{
+        if (p.item!==it) return;
         const m=stepsByItem[it];
         const pr=categoryProbs(theta[p.student],beta[it],
                                (modelType==='pcm'?delta_pcm[it]:delta_rsm),
                                m);
         const Ex = pr.reduce((a,pj,j)=>a+j*pj,0);
-        const Var= Math.max( pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0), 1e-6);
-        g += -(p.score-Ex);
+        const Var= pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0);
+        g += -( (p.score??0) - Ex );
         I += Var;
       });
-      if(I>1e-8){ const d=g/I; beta[it]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
-      beta[it] = Math.max(-5, Math.min(5, beta[it]));
+      if(I>1e-6){ const d=g/I; beta[it]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
     });
     const mβ=items.reduce((a,it)=>a+beta[it],0)/items.length;
     items.forEach(it=>beta[it]-=mβ);
@@ -791,19 +828,18 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
       items.forEach(it=>{
         for(let k=0;k<stepsByItem[it];k++){
           let g=0,I=0;
-          const subset = pairs.filter(p=>p.item===it);
-          subset.forEach(p=>{
+          pairs.forEach(p=>{
+            if (p.item!==it) return;
             const m=stepsByItem[it], δ=delta_pcm[it];
             const pr=categoryProbs(theta[p.student],beta[it],δ,m);
-            const Pk =pr[k], Pk1=pr[k+1]??1e-8;
-            const denom = Math.max(Pk+Pk1, 1e-6);
-            g += ((p.score>k?1:0) - Pk1/denom);
+            const Pk =pr[k], Pk1=pr[k+1]??0;
+            const denom=(Pk+Pk1)||1;
+            g += (( (p.score??0)>k?1:0) - (Pk1/denom) );
             I += (Pk*Pk1)/(denom*denom);
           });
-          if(I>1e-8){ const d=g/I; delta_pcm[it][k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
-          delta_pcm[it][k] = Math.max(-5, Math.min(5, delta_pcm[it][k]));
+          if(I>1e-6){ const d=g/I; delta_pcm[it][k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
         }
-        const μ=delta_pcm[it].reduce((a,x)=>a+x,0)/delta_pcm[it].length;
+        const μ=delta_pcm[it].reduce((a,x)=>a+x,0)/(delta_pcm[it].length||1);
         delta_pcm[it]=delta_pcm[it].map(d=>d-μ);
       });
     }else{ // RSM
@@ -812,23 +848,27 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
         pairs.forEach(p=>{
           const m=stepsByItem[p.item]; if(k>=m) return;
           const pr=categoryProbs(theta[p.student],beta[p.item],delta_rsm,m);
-          const Pk=pr[k], Pk1=pr[k+1]??1e-8;
-          const denom = Math.max(Pk+Pk1,1e-6);
-          g += ((p.score>k?1:0)- Pk1/denom);
+          const Pk=pr[k], Pk1=pr[k+1]??0;
+          const denom=(Pk+Pk1)||1;
+          g += (( (p.score??0)>k?1:0) - Pk1/denom );
           I += (Pk*Pk1)/(denom*denom);
         });
-        if(I>1e-8){ const d=g/I; delta_rsm[k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
-        delta_rsm[k] = Math.max(-5, Math.min(5, delta_rsm[k]));
+        if(I>1e-6){ const d=g/I; delta_rsm[k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
       }
-      const μ=delta_rsm.reduce((a,x)=>a+x,0)/delta_rsm.length;
+      const μ=delta_rsm.reduce((a,x)=>a+x,0)/(delta_rsm.length||1);
       delta_rsm=delta_rsm.map(d=>d-μ);
     }
 
-    irtProgressBar.style.width = Math.round((iter+1)/maxIter*100)+'%';
+    if ((iter+1)%5===0){
+      const pct = Math.min(99, Math.round(((iter+1)/maxIter)*100));
+      irtProgBar.style.width=pct+'%';
+      irtProgText.textContent=`Calibrating… Iter ${iter+1}/${maxIter}`;
+    }
+
     if(maxΔ<tol) break;
   }
 
-  // ---------- 统计 & 表格 ----------
+  // ---------- 计算 Infit / Outfit ----------
   const statsByItem={};
   items.forEach(it=>statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
 
@@ -838,51 +878,54 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
                              (modelType==='pcm'?delta_pcm[p.item]:delta_rsm),
                              m);
     const Ex  = pr.reduce((a,pj,j)=>a+j*pj,0);
-    const Var = Math.max( pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0), 1e-6);
-    const z   = (p.score-Ex)/Math.sqrt(Var);
+    const Var = pr.reduce((a,pj,j)=>a+pj*(j-Ex)**2,0);
+    const z   = ( (p.score??0)-Ex )/Math.sqrt(Var||1e-8);
+
     const s=statsByItem[p.item];
     s.sumZ2  += z*z;
     s.sumZ2w += Var*z*z;
     s.sumW   += Var;
     s.count++;
+    processed++;
   });
 
   const itemsRows=[];
   items.forEach(it=>{
-    const s=statsByItem[it]; const n=Math.max(1,s.count);
+    const s=statsByItem[it]; const n=s.count||1;
     const outfit = s.sumZ2/n;
     const infit  = s.sumW>0? s.sumZ2w/s.sumW : outfit;
-    const tZ=0, pVal=(z)=>2*(1-phiCdf(Math.abs(z)));
+    const tZ=0, pVal=(z)=>2*(1-phiCdf(Math.abs(z))); // 展示位
     itemsRows.push({
       Item:it,
-      Outfit:+outfit.toFixed(2), Outfit_t:+tZ.toFixed(2), Outfit_p:+pVal(tZ).toFixed(2),
-      Infit:+infit.toFixed(2),  Infit_t:+tZ.toFixed(2),  Infit_p:+pVal(tZ).toFixed(2)
+      Outfit:+outfit.toFixed(3), Outfit_t:+tZ.toFixed(2), Outfit_p:+pVal(tZ).toFixed(3),
+      Infit:+infit.toFixed(3),  Infit_t:+tZ.toFixed(2),  Infit_p:+pVal(tZ).toFixed(3)
     });
   });
-  lastIRTRows = itemsRows;
+  lastIRTItemsRows = itemsRows;
 
-  // ---------- Reliability（限制在 0..1） ----------
+  // ---------- Reliability 0..1 ----------
   const thetaVals=students.map(s=>theta[s]);
   const betaVals =items.map(it=>beta[it]);
   const variance = arr=>{
-    if (arr.length===0) return 0;
+    if (!arr.length) return 0;
     const μ=arr.reduce((a,x)=>a+x,0)/arr.length;
     return arr.reduce((a,x)=>a+(x-μ)**2,0)/arr.length;
   };
   const varPersons=variance(thetaVals);
+
   const avgVar = pairs.reduce((a,p)=>{
     const m=stepsByItem[p.item];
     const pr=categoryProbs(theta[p.student],beta[p.item],
                            (modelType==='pcm'?delta_pcm[p.item]:delta_rsm),
                            m);
     const Ex = pr.reduce((acc,pj,j)=>acc+j*pj,0);
-    const Var= Math.max( pr.reduce((acc,pj,j)=>acc+pj*(j-Ex)**2,0), 1e-6);
+    const Var= pr.reduce((acc= Math.max( pr.reduce((acc,pj,j)=>acc+pj*(j-Ex)**2,0), 1e-6);
     return a+Var;
   },0)/pairs.length;
   let reliability = varPersons/(varPersons+avgVar+1e-8);
   reliability = Math.max(0, Math.min(1, reliability));
 
-  // ---------- 可视化（新版 Wright Map） ----------
+  // ---------- 可视化（Wright Map） ----------
   irtSummary.innerHTML=`
     <div class="text-sm">
       <div><strong>Reliability</strong>: ${reliability.toFixed(3)}</div>
