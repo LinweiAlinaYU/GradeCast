@@ -67,9 +67,9 @@ let trainedModels=[];      // [{config, model, metrics, dicts, testRows:[], best
 let bestModelIndex=-1;
 
 let itemLoaded=false, scoreLoaded=false;
-let scoreMaxGlobal=1;     
-let lastPredictRows=[];   
-let lastIRTRows=[];       
+let scoreMaxGlobal=1;      // 训练数据的最大分值（用于预测→IRT 的分档）
+let lastPredictRows=[];    // 预测 (student,item,pred)
+let lastIRTRows=[];        // IRT 表格缓存
 
 // ---------- helpers ----------
 function show(el){ el.classList.remove('hidden'); }
@@ -122,6 +122,7 @@ function parseCSV(file, onComplete, onError){
       } else {
         const headers = res.meta.fields||[];
         const rows = (res.data||[]).map(row=>{
+          // 清洗：把 "." 或空字符串视为 null
           const r={};
           headers.forEach(h=>{
             const v = row[h];
@@ -635,7 +636,7 @@ exportPredictBtn.addEventListener('click', ()=>{
 });
 
 function predictionsToPairs(predicts, maxScore){
-  // 把连续预测值映射为 0..maxScore 的离散分值
+  // 把连续预测值映射为 0..maxScore 的离散分值（四舍五入并截断）
   const clampRound = v=> Math.max(0, Math.min(maxScore, Math.round(v)));
   return predicts.map(p=>({ student:String(p.student), item:String(p.item), score: clampRound(Number(p.pred)||0) }));
 }
@@ -693,6 +694,7 @@ function categoryProbs(theta, beta, deltaArr, m){
       const sumΔ=deltaArr.slice(0,k).reduce((a,x)=>a+x,0);
       logit-=sumΔ;
     }
+    // 裁剪避免上溢
     logit = Math.max(-10, Math.min(10, logit));
     s[k]=Math.exp(logit);
   }
@@ -738,12 +740,12 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   let delta_rsm=Array.from({length:maxSteps},()=>0);
   let delta_pcm={}; items.forEach(it=>delta_pcm[it]=Array.from({length:stepsByItem[it]},()=>0));
 
-  // ---------- JML Iritation ----------
+  // ---------- JML 迭代 ----------
   const maxIter=100,tol=1e-4;
   for(let iter=0;iter<maxIter;iter++){
     let maxΔ=0;
 
-    // -- θ
+    // -- 更新 θ
     students.forEach(s=>{
       let g=0,I=0;
       const subset = pairs.filter(p=>p.student===s);
@@ -758,12 +760,13 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
         I += Var;
       });
       if(I>1e-8){ const d=g/I; theta[s]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
+      // 裁剪避免发散
       theta[s] = Math.max(-5, Math.min(5, theta[s]));
     });
     const mθ=students.reduce((a,s)=>a+theta[s],0)/students.length;
     students.forEach(s=>theta[s]-=mθ);
 
-    // -- β
+    // -- 更新 β
     items.forEach(it=>{
       let g=0,I=0;
       const subset = pairs.filter(p=>p.item===it);
@@ -783,7 +786,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
     const mβ=items.reduce((a,it)=>a+beta[it],0)/items.length;
     items.forEach(it=>beta[it]-=mβ);
 
-    // -- δ
+    // -- 更新 δ
     if(modelType==='pcm'){
       items.forEach(it=>{
         for(let k=0;k<stepsByItem[it];k++){
@@ -825,7 +828,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
     if(maxΔ<tol) break;
   }
 
-  // ---------- Table ----------
+  // ---------- 统计 & 表格 ----------
   const statsByItem={};
   items.forEach(it=>statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
 
@@ -858,7 +861,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   });
   lastIRTRows = itemsRows;
 
-  // ---------- Reliability ----------
+  // ---------- Reliability（限制在 0..1） ----------
   const thetaVals=students.map(s=>theta[s]);
   const betaVals =items.map(it=>beta[it]);
   const variance = arr=>{
@@ -879,7 +882,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   let reliability = varPersons/(varPersons+avgVar+1e-8);
   reliability = Math.max(0, Math.min(1, reliability));
 
-  // ---------- Wright Map ----------
+  // ---------- 可视化（新版 Wright Map） ----------
   irtSummary.innerHTML=`
     <div class="text-sm">
       <div><strong>Reliability</strong>: ${reliability.toFixed(3)}</div>
@@ -898,7 +901,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   });
   drawWrightMap('wrightChart', thetaVals, stepPoints);
 
-  // Table
+  // 表格
   const tbl=document.createElement('table'); tbl.className='w-full text-sm';
   tbl.innerHTML=`
     <thead>
@@ -916,7 +919,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   });
   irtTableWrap.innerHTML=''; irtTableWrap.appendChild(tbl);
 
-  // csv
+  // 导出
   exportIRTBtn.onclick=()=>{
     const csv=Papa.unparse(itemsRows);
     const blob=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
