@@ -1,5 +1,5 @@
-// app.js (ES Module)
-import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, downloadBlob } from './charts.js';
+/***** app.js *****/
+import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, exportPlotPNG, downloadBlob } from './charts.js';
 
 const $ = (s)=>document.querySelector(s);
 
@@ -62,10 +62,19 @@ let bestModelIndex=-1;
 let itemLoaded=false, scoreLoaded=false;
 
 // ---------- helpers ----------
+const MISSING_TOKENS = new Set(['', '.', 'NA', 'N/A', 'na', 'n/a', 'Null', 'NULL', 'null', undefined, null]);
+const isMissing = (v)=> MISSING_TOKENS.has(v);
+const toNumberSafe = (v)=>{
+  if (isMissing(v)) return NaN;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+};
+const allFinite = (arr)=> arr.every(v=> Number.isFinite(v) && !Number.isNaN(v));
+
 function show(el){ el.classList.remove('hidden'); }
 function hide(el){ el.classList.add('hidden'); }
 
-function unlockSections(){
+function enableWorkflowsIfReady(){
   if(itemLoaded && scoreLoaded){
     ['features','config','train','results','predict','irt'].forEach(id=>{
       const el = document.getElementById(id);
@@ -99,7 +108,7 @@ function fillMultiSelect(selectEl, options){
 
 function parseCSV(file, onComplete, onError){
   Papa.parse(file, {
-    header:true, dynamicTyping:true, skipEmptyLines:true,
+    header:true, dynamicTyping:false, skipEmptyLines:true, // 动态类型改为 false -> 我们自己控类型
     complete:(res)=>{
       if (res.errors && res.errors.length){
         console.error(res.errors);
@@ -125,12 +134,12 @@ function handleCSV(file, type){
         itemHeaders=headers; itemRows=rows; itemLoaded=true;
         $('#itemFileName').textContent=file.name;
 
-        // 默认第一列是 ItemID（可改）
+        // 自动将第一列作为 ItemID（可手动改）
         fillSelectOptions(itemIdSelect, headers);
         if (headers.length) itemIdSelect.value = headers[0];
         show(itemMapDiv);
 
-        // 构建特征列表（排除 ItemID）
+        // 构建可选特征（默认排除当前 ItemID）
         buildFeatureCards(headers);
       } else {
         scoreHeaders=headers; scoreRows=rows; scoreLoaded=true;
@@ -144,7 +153,7 @@ function handleCSV(file, type){
       }
 
       console.info(`[${type}] CSV parsed:`, rows.length, 'rows');
-      unlockSections();
+      enableWorkflowsIfReady();
     },
     (errMsg)=>{
       tgt.textContent = '❌';
@@ -158,7 +167,7 @@ function handleCSV(file, type){
 itemFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'item'); });
 scoreFileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) handleCSV(f,'score'); });
 
-// ItemID 变更时，刷新特征列表
+// 当 ItemID 下拉改动时，重新生成特征列表
 itemIdSelect.addEventListener('change', ()=>{
   if (itemHeaders.length) buildFeatureCards(itemHeaders);
 });
@@ -203,7 +212,7 @@ function buildFeatureCards(headers){
   });
 }
 
-// ---------- Layers ----------
+// ---------- Layers (multi hidden) ----------
 function addLayerRow(units=32, act='tanh'){
   const row=document.createElement('div');
   row.className='flex items-center gap-2';
@@ -274,7 +283,7 @@ function buildSamples(){
   // item dict
   const itemById=new Map();
   itemRows.forEach(r=>{
-    const id=r[itemIdCol]; if(id==null) return;
+    const id=r[itemIdCol]; if(isMissing(id)) return;
     const featObj={};
     features.forEach(f=> featObj[f.name]= r[f.name]);
     itemById.set(String(id), featObj);
@@ -292,36 +301,36 @@ function buildSamples(){
     if (!itCol || !scCol){ alert('Choose ItemID & Score (long format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol], iid=r[itCol], sc=r[scCol];
-      // 跳过 "." 和空值
-      if (sid==null || iid==null || sc==null || sc==='' || sc==='.') return;
-      const feat=itemById.get(String(iid)) || itemById.get(String(iid).split('_')[0]);
-      if(!feat) return;
-      sampleRows.push({student:String(sid), item:String(iid), feat, score:Number(sc)});
+      if (isMissing(sid) || isMissing(iid) || isMissing(sc)) return;
+      const scoreNum = toNumberSafe(sc); if (!Number.isFinite(scoreNum)) return;
+      const feat=itemById.get(String(iid)); if(!feat) return;
+      sampleRows.push({student:String(sid), item:String(iid), feat, score:scoreNum});
     });
   } else {
     const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
     if (itemCols.length===0){ alert('Choose item columns (wide format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol];
+      if (isMissing(sid)) return;
       itemCols.forEach(col=>{
         const val=r[col];
-        if (val==null || val==='' || val==='.') return;   // 关键：跳过 "."
-        const iid=String(col);
-        // 关键：列名可能带后缀，用下划线前缀回退匹配
-        const feat=itemById.get(iid) || itemById.get(iid.split('_')[0]);
-        if(!feat) return;
-        sampleRows.push({student:String(sid), item:iid, feat, score:Number(val)});
+        if (isMissing(val)) return;                // 忽略 '.'、空等
+        const sc = toNumberSafe(val);
+        if (!Number.isFinite(sc)) return;          // 忽略非数值
+        const iid=col;
+        const feat=itemById.get(String(iid)); if(!feat) return; // 无对应描述则跳过
+        sampleRows.push({student:String(sid), item:String(iid), feat, score:sc});
       });
     });
   }
-  if (sampleRows.length===0){ alert('No valid samples. Check mappings / column names.'); return null; }
+  if (sampleRows.length===0){ alert('No valid samples (after cleaning). Check mappings/values.'); return null; }
 
   // build dicts for categorical
   dicts={};
   features.forEach(f=>{
     if (f.type==='categorical'){ dicts[f.name]=[]; }
   });
-  dicts['__student__'] = []; // for personalization
+  dicts['__student__'] = []; // for personalization / kidmap-like usage
   sampleRows.forEach(s=>{
     features.forEach(f=>{
       const v=s.feat[f.name];
@@ -347,14 +356,20 @@ function buildSamples(){
     }
     // numeric
     features.filter(f=>f.type==='numeric').forEach(f=>{
-      const val = Number(s.feat[f.name]);
-      vec[offset++] = isFinite(val) ? val : 0;
+      const val = toNumberSafe(s.feat[f.name]);
+      vec[offset++] = Number.isFinite(val) ? val : 0;
     });
     return vec;
   }
 
   const X=[], y=[];
-  sampleRows.forEach(s=>{ X.push(encodeX(s)); y.push([s.score]); });
+  sampleRows.forEach(s=>{
+    const xi = encodeX(s);
+    const yi = s.score;
+    if (allFinite(xi) && Number.isFinite(yi)) { X.push(xi); y.push([yi]); }
+  });
+
+  if (X.length===0){ alert('After cleaning, there are no finite samples to train.'); return null; }
 
   return {X,y,sampleRows,features};
 }
@@ -363,6 +378,12 @@ function buildSamples(){
 startBtn.addEventListener('click', async ()=>{
   const built = buildSamples(); if(!built) return;
   const {X,y,sampleRows} = built;
+
+  // 训练前再次 NaN 审核
+  if (!allFinite(X.flat()) || !allFinite(y.flat())){
+    alert('Data contains non-finite values after cleaning. Please check your CSV.');
+    return;
+  }
 
   // validations
   const configs=[];
@@ -424,24 +445,33 @@ startBtn.addEventListener('click', async ()=>{
       await model.fit(Xtr,Ytr,{
         epochs, batchSize:bs, shuffle:true, validationData:[Xte,Yte],
         callbacks:{ onEpochEnd:(ep,logs)=>{
-          histLoss.push(logs.loss); if (logs.val_loss!=null) histVal.push(logs.val_loss);
+          histLoss.push(logs.loss); if (Number.isFinite(logs.val_loss)) histVal.push(logs.val_loss);
           progressBar.style.width = Math.round((ep+1)/epochs*100)+'%';
           progressText.textContent = `Run ${i+1}/${configs.length} - Epoch ${ep+1}/${epochs}`;
         }}
       });
       const predT=model.predict(Xte);
       const pred=Array.from(predT.dataSync()); const actual=Array.from(Yte.dataSync());
-      metrics = computeMetrics(actual, pred);
+
+      // NaN 哨兵（防御）
+      const validMask = actual.map((a,j)=> Number.isFinite(a) && Number.isFinite(pred[j]));
+      const actualClean = actual.filter((_,j)=>validMask[j]);
+      const predClean   = pred.filter((_,j)=>validMask[j]);
+
+      metrics = computeMetrics(actualClean, predClean);
 
       // collect test rows for export
-      cardTestRows = testIdx.map((k,ii)=>({
-        student: sampleRows[k].student,
-        item: sampleRows[k].item,
-        actual: actual[ii],
-        pred: pred[ii]
-      }));
+      cardTestRows = testIdx
+        .map((k,ii)=>({k,ii}))
+        .filter((_,ix)=>validMask[ix])
+        .map(({k,ii})=>({
+          student: sampleRows[k].student,
+          item: sampleRows[k].item,
+          actual: actualClean[ii],
+          pred:   predClean[ii]
+        }));
 
-      renderResultCard({method,ratio,metrics,histLoss,histVal,actual,pred});
+      renderResultCard({method,ratio,metrics,histLoss,histVal,actual:actualClean,pred:predClean});
       Xtr.dispose();Ytr.dispose();Xte.dispose();Yte.dispose();predT.dispose();
     } else {
       // LOOCV
@@ -456,7 +486,8 @@ startBtn.addEventListener('click', async ()=>{
         local.add(tf.layers.dense({units:1,activation:'linear'}));
         local.compile({optimizer:tf.train.adam(lr),loss:'meanSquaredError'});
         await local.fit(trainX,trainY,{epochs, batchSize:Math.min(bs,X.length-1), shuffle:true});
-        const p=local.predict(testX).dataSync()[0]; preds.push(p); acts.push(y[k][0]);
+        const p=local.predict(testX).dataSync()[0]; const a=y[k][0];
+        if (Number.isFinite(p) && Number.isFinite(a)) { preds.push(p); acts.push(a); }
         trainX.dispose(); trainY.dispose(); testX.dispose(); local.dispose();
         progressBar.style.width = Math.round((k+1)/X.length*100)+'%';
         progressText.textContent = `Run ${i+1}/${configs.length} - Processed ${k+1}/${X.length} samples`;
@@ -477,12 +508,23 @@ startBtn.addEventListener('click', async ()=>{
 
 // ---------- Metrics + Render ----------
 function computeMetrics(actual, pred){
-  const n=actual.length; let mae=0,mse=0,sumY=0;
-  for (let i=0;i<n;i++){ const e=pred[i]-actual[i]; mae+=Math.abs(e); mse+=e*e; sumY+=actual[i]; }
+  const n=actual.length;
+  if (n===0) return {MAE:0, MSE:0, RMSE:0, R2:0};
+  let mae=0,mse=0,sumY=0;
+  for (let i=0;i<n;i++){
+    const a=actual[i], p=pred[i];
+    const e=p-a;
+    mae+=Math.abs(e); mse+=e*e; sumY+=a;
+  }
   mae/=n; mse/=n; const rmse=Math.sqrt(mse); const meanY=sumY/n;
   let sst=0; for (let i=0;i<n;i++){ const d=actual[i]-meanY; sst+=d*d; }
   const r2 = sst>0 ? 1 - (mse*n)/sst : 1;
-  return {MAE:+mae.toFixed(3), MSE:+mse.toFixed(3), RMSE:+rmse.toFixed(3), R2:+r2.toFixed(3)};
+  return {
+    MAE:+mae.toFixed(3),
+    MSE:+mse.toFixed(3),
+    RMSE:+rmse.toFixed(3),
+    R2:+r2.toFixed(3)
+  };
 }
 function renderResultCard({method,ratio,metrics,histLoss,histVal,actual,pred}){
   const card=document.createElement('div');
@@ -501,11 +543,11 @@ function renderResultCard({method,ratio,metrics,histLoss,histVal,actual,pred}){
 
   if (histLoss?.length){
     const lossDiv=document.createElement('div'); lossDiv.style.height='220px'; card.appendChild(lossDiv);
-    drawLossCurvePlotly(lossDiv, histLoss, histVal, {});
+    drawLossCurvePlotly(lossDiv, histLoss, histVal);
   }
   if (actual?.length){
     const scDiv=document.createElement('div'); scDiv.style.height='260px'; card.appendChild(scDiv);
-    drawScatterPlotPlotly(scDiv, actual, pred, {});
+    drawScatterPlotPlotly(scDiv, actual, pred);
   }
   resultsContainer.appendChild(card);
 }
@@ -547,19 +589,22 @@ predictBtn.addEventListener('click', ()=>{
         if (i>=0) vec[offset+i]=1;
         offset+=arr.length;
       }
-      features.filter(f=>f.type==='numeric').forEach(f=>{ vec[offset++]=Number(featObj[f.name])||0; });
+      features.filter(f=>f.type==='numeric').forEach(f=>{
+        const v = toNumberSafe(featObj[f.name]); 
+        vec[offset++]= Number.isFinite(v)? v : 0;
+      });
       return vec;
     }
     const students = dictsLocal['__student__']||[];
     const model=best.model;
     const predicts=[];
     rows.forEach(r=>{
-      const iid=r[itemIdCol]; if (iid==null) return;
+      const iid=r[itemIdCol]; if (isMissing(iid)) return;
       const feat={}; features.forEach(f=> feat[f.name]=r[f.name]);
       students.forEach(sid=>{
         const x=encode(feat, sid);
         const p=model.predict(tf.tensor2d([x])).dataSync()[0];
-        predicts.push({student:String(sid), item:String(iid), pred:p});
+        if (Number.isFinite(p)) predicts.push({student:sid, item:String(iid), pred:p});
       });
     });
     lastPredictRows = predicts;
@@ -610,18 +655,20 @@ function buildObservedPairs(){
     if (!itemIdCol || !scoreCol){ alert('Choose ItemID & Score (long format).'); return null; }
     scoreRows.forEach(r=>{
       const sid=r[studentCol], iid=r[itemIdCol], sc=r[scoreCol];
-      if (sid==null || iid==null || sc==null || sc==='' || sc==='.') return;
-      pairs.push({student:String(sid), item:String(iid), score:Number(sc)});
+      if (isMissing(sid) || isMissing(iid) || isMissing(sc)) return;
+      const scoreNum = toNumberSafe(sc); if (!Number.isFinite(scoreNum)) return;
+      pairs.push({student:String(sid), item:String(iid), score:scoreNum});
     });
   } else {
     const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
     if (itemCols.length===0){ alert('Choose item columns (wide format).'); return null; }
     scoreRows.forEach(r=>{
-      const sid=r[studentCol];
+      const sid=r[studentCol]; if (isMissing(sid)) return;
       itemCols.forEach(col=>{
         const val=r[col];
-        if (val==null || val==='' || val==='.') return;
-        pairs.push({student:String(sid), item:String(col), score:Number(val)});
+        if (isMissing(val)) return;
+        const sc = toNumberSafe(val); if (!Number.isFinite(sc)) return;
+        pairs.push({student:String(sid), item:String(col), score:sc});
       });
     });
   }
@@ -644,7 +691,7 @@ function categoryProbs(theta, beta, deltaArr, m){
   return s.map(x=>x/Z);
 }
 
-function phiCdf(z){
+function phiCdf(z){ // 标准正态 CDF 近似
   const t=1/(1+0.2316419*Math.abs(z));
   const d=Math.exp(-z*z/2)/Math.sqrt(2*Math.PI);
   const p=1-d*(0.319381530*t-0.356563782*t**2+1.781477937*t**3-1.821255978*t**4+1.330274429*t**5);
@@ -657,10 +704,11 @@ function runIRT_JML_fromPairs_poly(pairs){
   const students=[...new Set(pairs.map(p=>p.student))];
   const items   =[...new Set(pairs.map(p=>p.item))];
 
-  // 每题最大类别（从实际分数推断）
+  // 每题最大类别（从实际分数推断，至少1）
   const stepsByItem={};
   items.forEach(it=>{
-    const maxScore = Math.max(...pairs.filter(p=>p.item===it).map(p=>p.score));
+    const scores = pairs.filter(p=>p.item===it).map(p=>p.score).filter(Number.isFinite);
+    const maxScore = scores.length ? Math.max(...scores) : 1;
     stepsByItem[it] = Math.max(1, maxScore);
   });
   const maxSteps=Math.max(...Object.values(stepsByItem));
@@ -676,10 +724,11 @@ function runIRT_JML_fromPairs_poly(pairs){
   for(let iter=0;iter<maxIter;iter++){
     let maxΔ=0;
 
-    // -- 更新 θ
+    // -- update θ
     students.forEach(s=>{
       let g=0,I=0;
       pairs.filter(p=>p.student===s).forEach(p=>{
+        if (!Number.isFinite(p.score)) return;
         const m=stepsByItem[p.item];
         const pr=categoryProbs(theta[s],beta[p.item],
                                (modelType==='pcm'?delta_pcm[p.item]:delta_rsm),
@@ -694,10 +743,11 @@ function runIRT_JML_fromPairs_poly(pairs){
     const mθ=students.reduce((a,s)=>a+theta[s],0)/students.length;
     students.forEach(s=>theta[s]-=mθ);
 
-    // -- 更新 β
+    // -- update β
     items.forEach(it=>{
       let g=0,I=0;
       pairs.filter(p=>p.item===it).forEach(p=>{
+        if (!Number.isFinite(p.score)) return;
         const m=stepsByItem[it];
         const pr=categoryProbs(theta[p.student],beta[it],
                                (modelType==='pcm'?delta_pcm[it]:delta_rsm),
@@ -718,41 +768,44 @@ function runIRT_JML_fromPairs_poly(pairs){
         for(let k=0;k<stepsByItem[it];k++){
           let g=0,I=0;
           pairs.filter(p=>p.item===it).forEach(p=>{
+            if (!Number.isFinite(p.score)) return;
             const m=stepsByItem[it], δ=delta_pcm[it];
             const pr=categoryProbs(theta[p.student],beta[it],δ,m);
-            const Pk =pr[k], Pk1=pr[k+1]||0;
-            g += ((p.score>k?1:0)- (Pk1/((Pk+Pk1)||1)));
-            I += (Pk*Pk1)/(((Pk+Pk1)||1)**2);
+            const Pk =pr[k], Pk1=pr[k+1];
+            g += ((p.score>k?1:0)- (Pk1/(Pk+Pk1)));
+            I += (Pk*Pk1)/((Pk+Pk1)**2);
           });
           if(I>1e-6){ const d=g/I; delta_pcm[it][k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
         }
-        const μ=delta_pcm[it].reduce((a,x)=>a+x,0)/Math.max(1,delta_pcm[it].length);
+        const μ=delta_pcm[it].reduce((a,x)=>a+x,0)/delta_pcm[it].length;
         delta_pcm[it]=delta_pcm[it].map(d=>d-μ);
       });
     }else{ // RSM
       for(let k=0;k<maxSteps;k++){
         let g=0,I=0;
         pairs.forEach(p=>{
+          if (!Number.isFinite(p.score)) return;
           const m=stepsByItem[p.item]; if(k>=m) return;
           const pr=categoryProbs(theta[p.student],beta[p.item],delta_rsm,m);
-          const Pk=pr[k], Pk1=pr[k+1]||0;
-          g += ((p.score>k?1:0)- Pk1/((Pk+Pk1)||1));
-          I += (Pk*Pk1)/(((Pk+Pk1)||1)**2);
+          const Pk=pr[k], Pk1=pr[k+1];
+          g += ((p.score>k?1:0)- Pk1/(Pk+Pk1));
+          I += (Pk*Pk1)/((Pk+Pk1)**2);
         });
         if(I>1e-6){ const d=g/I; delta_rsm[k]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
       }
-      const μ=delta_rsm.reduce((a,x)=>a+x,0)/Math.max(1,delta_rsm.length);
+      const μ=delta_rsm.reduce((a,x)=>a+x,0)/delta_rsm.length;
       delta_rsm=delta_rsm.map(d=>d-μ);
     }
 
     if(maxΔ<tol) break;
   }
 
-  // ---------- 计算 Infit / Outfit ----------
+  // ---------- Infit / Outfit ----------
   const statsByItem={};
   items.forEach(it=>statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
 
   pairs.forEach(p=>{
+    if (!Number.isFinite(p.score)) return;
     const m=stepsByItem[p.item];
     const pr = categoryProbs(theta[p.student],beta[p.item],
                              (modelType==='pcm'?delta_pcm[p.item]:delta_rsm),
@@ -773,7 +826,7 @@ function runIRT_JML_fromPairs_poly(pairs){
     const s=statsByItem[it]; const n=s.count||1;
     const outfit = s.sumZ2/n;
     const infit  = s.sumW>0? s.sumZ2w/s.sumW : outfit;
-    const tZ=0, pVal=(z)=>2*(1-phiCdf(Math.abs(z))); // 展示占位
+    const tZ=0, pVal=(z)=>2*(1-phiCdf(Math.abs(z))); 
     itemsRows.push({
       Item:it,
       Outfit:+outfit.toFixed(2), Outfit_t:+tZ.toFixed(2), Outfit_p:+pVal(tZ).toFixed(2),
@@ -781,7 +834,7 @@ function runIRT_JML_fromPairs_poly(pairs){
     });
   });
 
-  // ---------- Reliability ----------
+  // ---------- Reliability
   const thetaVals=students.map(s=>theta[s]);
   const betaVals =items.map(it=>beta[it]);
   const variance = arr=>{
@@ -790,6 +843,7 @@ function runIRT_JML_fromPairs_poly(pairs){
   };
   const varPersons=variance(thetaVals);
   const avgVar = pairs.reduce((a,p)=>{
+    if (!Number.isFinite(p.score)) return a;
     const m=stepsByItem[p.item];
     const pr=categoryProbs(theta[p.student],beta[p.item],
                            (modelType==='pcm'?delta_pcm[p.item]:delta_rsm),
@@ -797,10 +851,10 @@ function runIRT_JML_fromPairs_poly(pairs){
     const Ex = pr.reduce((acc,pj,j)=>acc+j*pj,0);
     const Var= pr.reduce((acc,pj,j)=>acc+pj*(j-Ex)**2,0);
     return a+Var;
-  },0)/pairs.length;
+  },0)/Math.max(1, pairs.filter(p=>Number.isFinite(p.score)).length);
   const reliability = varPersons/(varPersons+avgVar||1e-6);
 
-  // ---------- 可视化 ----------
+  // ---------- Figure ----------
   irtSummary.innerHTML=`
     <div class="text-sm">
       <div><strong>Reliability</strong>: ${reliability.toFixed(3)}</div>
@@ -808,7 +862,7 @@ function runIRT_JML_fromPairs_poly(pairs){
     </div>`;
   drawWrightMap('wrightChart', thetaVals, betaVals);
 
-  // ---------- 表格 ----------
+  // ---------- Table ----------
   const tbl=document.createElement('table'); tbl.className='w-full text-sm';
   tbl.innerHTML=`
     <thead>
@@ -826,7 +880,7 @@ function runIRT_JML_fromPairs_poly(pairs){
   });
   irtTableWrap.innerHTML=''; irtTableWrap.appendChild(tbl);
 
-  // ---------- 导出 CSV ----------
+  // ---------- CSV ----------
   exportIRTBtn.onclick=()=>{
     const csv=Papa.unparse(itemsRows);
     const blob=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
