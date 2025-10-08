@@ -1,7 +1,8 @@
-# GradeCast — AI-powered Assessment Insight Platform  
-*(Artificial Neural Network Prediction ＋ Rasch Diagnostics)*
+# GradeCast — AI-powered Measurement Insight Platform  
+*(Artificial Neural Network Prediction + Rasch Diagnostics)*
 
-Upload your student–item response data, train artificial neural networks entirely **in-browser**, and instantly explore **Rasch / IRT analytics**—including Wright Maps and Infit/Outfit fit statistics—all in an **open-source, privacy-first workflow**.
+**GradeCast** enables users to upload construct-based person–item response datasets, perform end-to-end **artificial neural network modeling** training-validation-prediction directly in the browser, and explore **Rasch-based IRT analyses** in real time.  
+
 
 **Features:**  
 CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
