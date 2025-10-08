@@ -6,7 +6,7 @@ Upload your student–item response data, train artificial neural networks entir
 **Features:**  
 CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
 
-** 📘 Statistical Principles for GradeCast**
+**Statistical Principles:**
 You can assess and refer to all statistical principles for GradeCast **[here](/GradeCast_Statistical_Principles.pdf).**
 
 
