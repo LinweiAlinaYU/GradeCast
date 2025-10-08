@@ -1,4 +1,3 @@
-/***** app.js *****/
 import { drawLossCurvePlotly, drawScatterPlotPlotly, drawWrightMap, downloadBlob } from './charts.js';
 
 const $ = (s)=>document.querySelector(s);
@@ -68,7 +67,7 @@ let bestModelIndex=-1;
 
 let itemLoaded=false, scoreLoaded=false;
 let scoreMaxGlobal=1;      // 训练数据的最大分值（用于预测→IRT 的分档）
-let lastPredictRows=[];    // 预测 (student,item,pred)
+let lastPredictRows=[];    // 预测 (student,item,predInt)
 let lastIRTRows=[];        // IRT 表格缓存
 
 // ---------- helpers ----------
@@ -122,7 +121,6 @@ function parseCSV(file, onComplete, onError){
       } else {
         const headers = res.meta.fields||[];
         const rows = (res.data||[]).map(row=>{
-          // 清洗：把 "." 或空字符串视为 null
           const r={};
           headers.forEach(h=>{
             const v = row[h];
@@ -151,7 +149,7 @@ function handleCSV(file, type){
         itemHeaders=headers; itemRows=rows; itemLoaded=true;
         $('#itemFileName').textContent=file.name;
         fillSelectOptions(itemIdSelect, headers);
-        if (headers.length) itemIdSelect.value = headers[0]; // 默认第一列
+        if (headers.length) itemIdSelect.value = headers[0];
         show(itemMapDiv);
         buildFeatureCards(headers);
       } else {
@@ -543,6 +541,9 @@ exportTestBtn.addEventListener('click', ()=>{
   downloadBlob(blob, 'test_predictions.csv');
 });
 
+// 预测分数离散化（四舍五入截断到 0..maxScore）
+const clampRound = (v, maxScore) => Math.max(0, Math.min(maxScore, Math.round(Number(v)||0)));
+
 // ---------- Predict ----------
 predictFileInput.addEventListener('change', e=>{
   const f=e.target.files[0];
@@ -590,13 +591,14 @@ predictBtn.addEventListener('click', ()=>{
     const total = rows.length * students.length;
     let done = 0;
 
-    rows.forEach((r,ri)=>{
+    rows.forEach((r)=>{
       const iid=r[itemIdCol]; if (iid==null) return;
       const feat={}; features.forEach(f=> feat[f.name]=r[f.name]);
       students.forEach(sid=>{
         const x=encode(feat, sid);
-        const p=model.predict(tf.tensor2d([x])).dataSync()[0];
-        predicts.push({student:sid, item:String(iid), pred:p});
+        const pRaw=model.predict(tf.tensor2d([x])).dataSync()[0];
+        const pInt=clampRound(pRaw, scoreMaxGlobal);              
+        predicts.push({student:sid, item:String(iid), pred:pInt}); 
         done++;
         if (done%100===0 || done===total){
           predictProgressBar.style.width = Math.round(done/total*100)+'%';
@@ -604,85 +606,43 @@ predictBtn.addEventListener('click', ()=>{
       });
     });
 
-    lastPredictRows = predicts;
+    lastPredictRows = predicts; 
+    hide(predictProgress);
 
-    // preview
+    // Prediction Table 
     const info=document.createElement('div'); info.className='text-sm text-gray-300 mt-2';
     info.textContent=`Predicted pairs: ${predicts.length} (showing up to 100 below)`;
     predictResultsDiv.appendChild(info);
 
     const tbl=document.createElement('table'); tbl.className='mt-2 w-full text-sm';
-    tbl.innerHTML='<thead><tr><th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred</th></tr></thead><tbody></tbody>';
+    tbl.innerHTML='<thead><tr><th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred (int)</th></tr></thead><tbody></tbody>';
     const tb=tbl.querySelector('tbody');
     predicts.slice(0,100).forEach(r=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${(+r.pred).toFixed(3)}</td>`;
+      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${r.pred}</td>`;
       tb.appendChild(tr);
     });
     predictResultsDiv.appendChild(tbl);
-
-    // 用预测对 “新 Item（I1, I2, …）” 进行 IRT
-    const pairs = predictionsToPairs(predicts, scoreMaxGlobal);
-    runIRT_JML_fromPairs_poly(pairs, {source:'predictions'});
-    hide(predictProgress);
   });
 });
 
 exportPredictBtn.addEventListener('click', ()=>{
   if (!lastPredictRows.length){ alert('No predictions yet.'); return; }
-  const csv = Papa.unparse(lastPredictRows);
+  const csv = Papa.unparse(lastPredictRows); 
   const blob = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
   downloadBlob(blob, 'predictions.csv');
 });
 
-function predictionsToPairs(predicts, maxScore){
-  // 把连续预测值映射为 0..maxScore 的离散分值（四舍五入并截断）
-  const clampRound = v=> Math.max(0, Math.min(maxScore, Math.round(v)));
-  return predicts.map(p=>({ student:String(p.student), item:String(p.item), score: clampRound(Number(p.pred)||0) }));
-}
-
-// ---------- IRT from observed scores ----------
+// ---------- IRT from predicted scores ----------
 computeIRTBtn.addEventListener('click', ()=>{
-  const pairs = buildObservedPairs();
-  if (!pairs) return;
-  runIRT_JML_fromPairs_poly(pairs, {source:'observed'});
+  if (!lastPredictRows.length){
+    alert('Please run Prediction first (Step 6).');
+    return;
+  }
+  // 将预测记录转换为 pairs（整数分）
+  const pairs = lastPredictRows.map(p => ({ student:String(p.student), item:String(p.item), score:Number(p.pred) }));
+  runIRT_JML_fromPairs_poly(pairs, {source:'predictions'});
 });
-
-function buildObservedPairs(){
-  if (scoreRows.length===0){
-    alert('Please upload Student Responses CSV first.'); return null;
-  }
-  const fmt = scoreFormatSelect.value;
-  const studentCol = studentIdSelect.value;
-  const itemIdCol = (fmt==='long') ? scoreItemIdSelect.value : null;
-  const scoreCol  = (fmt==='long') ? scoreValueSelect.value   : null;
-  if (!studentCol){ alert('Choose StudentID column.'); return null; }
-
-  const pairs=[];
-  if (fmt==='long'){
-    if (!itemIdCol || !scoreCol){ alert('Choose ItemID & Score (long format).'); return null; }
-    scoreRows.forEach(r=>{
-      const sid=r[studentCol], iid=r[itemIdCol], sc=r[scoreCol];
-      const num = Number(sc);
-      if (sid==null || iid==null || !isFinite(num)) return;
-      pairs.push({student:String(sid), item:String(iid), score:num});
-    });
-  } else {
-    const itemCols = Array.from(wideItemColsSelect.selectedOptions).map(o=>o.value);
-    if (itemCols.length===0){ alert('Choose item columns (wide format).'); return null; }
-    scoreRows.forEach(r=>{
-      const sid=r[studentCol];
-      if (sid==null) return;
-      itemCols.forEach(col=>{
-        const num=Number(r[col]);
-        if (!isFinite(num)) return;
-        pairs.push({student:String(sid), item:String(col), score:num});
-      });
-    });
-  }
-  if (!pairs.length){ alert('No valid score pairs.'); return null; }
-  return pairs;
-}
 
 // ---------- IRT (PCM/RSM) ----------
 function categoryProbs(theta, beta, deltaArr, m){
@@ -694,7 +654,6 @@ function categoryProbs(theta, beta, deltaArr, m){
       const sumΔ=deltaArr.slice(0,k).reduce((a,x)=>a+x,0);
       logit-=sumΔ;
     }
-    // 裁剪避免上溢
     logit = Math.max(-10, Math.min(10, logit));
     s[k]=Math.exp(logit);
   }
@@ -713,25 +672,17 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   const modelType=document.getElementById('irtModelSelect').value; // 'pcm' | 'rsm'
   if (!pairs?.length){ alert('No pairs for IRT.'); return; }
 
-  // 进度条
+  // Progerss
   show(irtProgress);
   irtProgressBar.style.width='0%';
-  irtProgressText.textContent = source==='predictions' ? 'Calibrating from predictions...' : 'Calibrating from observed scores...';
+  irtProgressText.textContent = 'Calibrating from predicted scores...';
 
   const students=[...new Set(pairs.map(p=>p.student))];
   const items   =[...new Set(pairs.map(p=>p.item))];
 
-  // 每题最大类别
+  // 每题最大类别：使用训练时的 maxScoreGlobal
   const stepsByItem={};
-  if (source==='predictions'){
-    // 预测来自训练标度，统一使用训练的 maxScoreGlobal
-    items.forEach(it=> stepsByItem[it]=Math.max(1, Math.round(scoreMaxGlobal)) );
-  } else {
-    items.forEach(it=>{
-      const ms = Math.max(...pairs.filter(p=>p.item===it).map(p=>p.score));
-      stepsByItem[it] = Math.max(1, isFinite(ms)? Math.round(ms) : 1);
-    });
-  }
+  items.forEach(it=> stepsByItem[it]=Math.max(1, Math.round(scoreMaxGlobal)) );
   const maxSteps=Math.max(...Object.values(stepsByItem));
 
   // 参数
@@ -740,12 +691,12 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   let delta_rsm=Array.from({length:maxSteps},()=>0);
   let delta_pcm={}; items.forEach(it=>delta_pcm[it]=Array.from({length:stepsByItem[it]},()=>0));
 
-  // ---------- JML 迭代 ----------
+  // ---------- JML Irtation ----------
   const maxIter=100,tol=1e-4;
   for(let iter=0;iter<maxIter;iter++){
     let maxΔ=0;
 
-    // -- 更新 θ
+    // -- update θ
     students.forEach(s=>{
       let g=0,I=0;
       const subset = pairs.filter(p=>p.student===s);
@@ -760,13 +711,12 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
         I += Var;
       });
       if(I>1e-8){ const d=g/I; theta[s]+=d; maxΔ=Math.max(maxΔ,Math.abs(d)); }
-      // 裁剪避免发散
       theta[s] = Math.max(-5, Math.min(5, theta[s]));
     });
     const mθ=students.reduce((a,s)=>a+theta[s],0)/students.length;
     students.forEach(s=>theta[s]-=mθ);
 
-    // -- 更新 β
+    // -- uodate β
     items.forEach(it=>{
       let g=0,I=0;
       const subset = pairs.filter(p=>p.item===it);
@@ -786,7 +736,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
     const mβ=items.reduce((a,it)=>a+beta[it],0)/items.length;
     items.forEach(it=>beta[it]-=mβ);
 
-    // -- 更新 δ
+    // -- update δ
     if(modelType==='pcm'){
       items.forEach(it=>{
         for(let k=0;k<stepsByItem[it];k++){
@@ -828,7 +778,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
     if(maxΔ<tol) break;
   }
 
-  // ---------- 统计 & 表格 ----------
+  // ---------- Stat & Table ----------
   const statsByItem={};
   items.forEach(it=>statsByItem[it]={sumZ2:0,sumZ2w:0,sumW:0,count:0});
 
@@ -861,9 +811,8 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   });
   lastIRTRows = itemsRows;
 
-  // ---------- Reliability（限制在 0..1） ----------
+  // ---------- Reliability（保留两位，限制在 0..1） ----------
   const thetaVals=students.map(s=>theta[s]);
-  const betaVals =items.map(it=>beta[it]);
   const variance = arr=>{
     if (arr.length===0) return 0;
     const μ=arr.reduce((a,x)=>a+x,0)/arr.length;
@@ -882,13 +831,13 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   let reliability = varPersons/(varPersons+avgVar+1e-8);
   reliability = Math.max(0, Math.min(1, reliability));
 
-  // ---------- 可视化（新版 Wright Map） ----------
+  // ----------  Wright Map ----------
   irtSummary.innerHTML=`
     <div class="text-sm">
-      <div><strong>Reliability</strong>: ${reliability.toFixed(3)}</div>
-      <div><strong>Variance (Persons)</strong>: ${varPersons.toFixed(3)}</div>
+      <div><strong>Reliability</strong>: ${reliability.toFixed(2)}</div>
+      <div><strong>Variance (Persons)</strong>: ${varPersons.toFixed(2)}</div>
     </div>`;
-  // 计算每个 item 的 step 阈值位置：beta + 累积δ（RSM 用公共 δ）
+
   const stepPoints=[];
   items.forEach((it,idx)=>{
     const m = stepsByItem[it];
@@ -901,7 +850,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   });
   drawWrightMap('wrightChart', thetaVals, stepPoints);
 
-  // 表格
+  // Table
   const tbl=document.createElement('table'); tbl.className='w-full text-sm';
   tbl.innerHTML=`
     <thead>
@@ -919,11 +868,11 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   });
   irtTableWrap.innerHTML=''; irtTableWrap.appendChild(tbl);
 
-  // 导出
+  // csv.
   exportIRTBtn.onclick=()=>{
     const csv=Papa.unparse(itemsRows);
     const blob=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-    downloadBlob(blob,'irt_'+modelType+'_'+(source||'pred')+'.csv');
+    downloadBlob(blob,'irt_'+modelType+'_pred.csv');
   };
 
   hide(irtProgress);
