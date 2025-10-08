@@ -1,4 +1,7 @@
 /* styles.css */
-.transition-width { transition: width .25s ease; }
-.absClose { position: absolute; top: 6px; right: 8px; }
-table th, table td { border-bottom: 1px solid rgba(255,255,255,0.06); }
+.transition-width {
+  transition: width 0.25s ease;
+}
+table th, table td { padding: 6px 8px; }
+table thead tr { background: #1f2937; } /* gray-800 */
+table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
