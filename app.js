@@ -640,8 +640,47 @@ computeIRTBtn.addEventListener('click', ()=>{
     alert('Please run Prediction first (Step 6).');
     return;
   }
-  // 将预测记录转换为 pairs
   const pairs = lastPredictRows.map(p => ({ student:String(p.student), item:String(p.item), score:Number(p.pred) }));
+  computeIRTBtn.addEventListener('click', ()=>{
+  if (!lastPredictRows.length){
+    alert('Please run Prediction first (Step 6).');
+    return;
+  }
+  let pairs = lastPredictRows.map(p => ({
+    student:String(p.student),
+    item:String(p.item),
+    score:Number(p.pred)
+  }));
+  const byItem = new Map();
+  pairs.forEach(r=>{
+    if(!byItem.has(r.item)) byItem.set(r.item, []);
+    byItem.get(r.item).push(r.score);
+  });
+  const badItems = [];
+  byItem.forEach((arr, it)=>{
+    const cats = new Set(arr);
+    if (cats.size < 2) badItems.push(it);
+  });
+  if (badItems.length){
+    const before = pairs.length;
+    pairs = pairs.filter(r => !badItems.includes(r.item));
+    const removedPairs = before - pairs.length;
+    console.warn(
+      `Excluded ${badItems.length} item(s) from IRT due to single observed category in predictions:`,
+      badItems.slice(0,10), badItems.length>10 ? '...' : ''
+    );
+    irtSummary.innerHTML = `
+      <div class="text-sm mb-2 text-amber-300">
+        ${badItems.length} item(s) were excluded from IRT because all predicted scores fell into a single category (no information).
+      </div>` + (irtSummary.innerHTML || '');
+  }
+
+  if (!pairs.length){
+    alert('All predicted items have a single category only. IRT cannot be estimated. ' +
+          'Try retraining or use a less aggressive rounding.');
+    return;
+  }
+
   runIRT_JML_fromPairs_poly(pairs, {source:'predictions'});
 });
 
