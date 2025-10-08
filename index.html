@@ -25,7 +25,6 @@
 
   <!-- App CSS/JS -->
   <link rel="stylesheet" href="styles.css"/>
-  <!-- 关键修复：仅加载一个入口脚本，使用 ES Module -->
   <script type="module" defer src="app.js"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
@@ -232,13 +231,26 @@
     <h2 class="text-lg font-semibold">6. Predict New Items</h2>
     <div id="predictWrap" class="bg-gray-800 border border-gray-700 rounded p-4 space-y-3">
       <div>
-        <label class="block text-sm font-medium">Upload new Item Descriptive CSV (same structure)</label>
+        <label class="block text-sm font-medium">
+          Upload new Item Descriptive CSV (same structure)
+          <span id="predictItemStatus" class="ml-2 align-middle"></span>
+        </label>
         <input id="predictItemFile" type="file" accept=".csv" class="w-full"/>
       </div>
+
       <div class="flex items-center gap-3">
         <button id="predictBtn" class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Run Prediction</button>
         <button id="exportPredictBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Export Prediction CSV</button>
       </div>
+
+      <!-- Prediction Progress -->
+      <div id="predictProgress" class="hidden">
+        <div class="text-sm mb-1" id="predictProgressText">Predicting...</div>
+        <div class="w-full bg-gray-700 rounded h-2">
+          <div id="predictProgressBar" class="h-2 bg-blue-500 rounded transition-width" style="width:0%"></div>
+        </div>
+      </div>
+
       <div id="predictResults" class="mt-4"></div>
     </div>
   </section>
@@ -255,9 +267,17 @@
         </select>
       </label>
       <button id="computeIRTBtn"
-              class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Compute IRT from Observed Scores</button>
+              class="bg-primary hover:bg-blue-700 px-3 py-1 rounded">Compute IRT from Predicted Scores</button>
       <button id="exportIRTBtn"
               class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded">Export IRT Table CSV</button>
+    </div>
+
+    <!-- IRT Progress -->
+    <div id="irtProgress" class="hidden">
+      <div class="text-sm mb-1" id="irtProgressText">Calibrating...</div>
+      <div class="w-full bg-gray-700 rounded h-2">
+        <div id="irtProgressBar" class="h-2 bg-blue-500 rounded transition-width" style="width:0%"></div>
+      </div>
     </div>
 
     <div id="irtSummary" class="text-sm"></div>
