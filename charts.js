@@ -26,9 +26,7 @@ export function drawScatterPlotPlotly(div, actual, pred){
 }
 
 /**
- * Wright Map（改版）：
- * 左侧：考生能力分布（水平直方图，x=Count, y=Logits）
- * 右侧：题目 step 阈值（散点，y=阈值 logit，x=按题目索引离散化）
+ * Wright Map（左：person ability 直方图；右：item step 阈值散点）
  */
 export function drawWrightMap(divId, thetaVals, stepPoints){
   const div = (typeof divId==='string')? document.getElementById(divId): divId;
@@ -53,7 +51,7 @@ export function drawWrightMap(divId, thetaVals, stepPoints){
     xaxis: 'x2',
     yaxis: 'y1',
     text: stepPoints.map(p=>`${p.item} | cat${p.step-1}/cat${p.step}`),
-    hovertemplate: 'Item: %{text}<br>Logit: %{y:.3f}<extra></extra>'
+    hovertemplate: 'Item: %{text}<br>Logit: %{y:.2f}<extra></extra>'
   };
 
   Plotly.newPlot(div, [hist, scatter], {
