@@ -1,7 +1,7 @@
 # GradeCast — AI-powered Assessment Insight Platform  
 *(Artificial Neural Network Prediction ＋ Rasch Diagnostics)*
 
-Upload your student–item response data, train neural networks entirely **in-browser** with TensorFlow.js (Holdout / LOOCV), and instantly explore **Rasch / IRT analytics**—including Wright Maps and Infit/Outfit fit statistics—all in an **open-source, privacy-first workflow**.
+Upload your student–item response data, train artificial neural networks entirely **in-browser**, and instantly explore **Rasch / IRT analytics**—including Wright Maps and Infit/Outfit fit statistics—all in an **open-source, privacy-first workflow**.
 
 **Features:**  
 CSV upload & column mapping · multi-config training/validation · precise progress bars · new-item prediction · IRT calibration (**Reliability / Variance / Infit / Outfit / t / p**) · Wright Map
@@ -101,9 +101,9 @@ Used for both **training** and **prediction**; structure must be identical in bo
 **Example**
 ```csv
 ItemID,Construct,Format
-Delivery.00abc,DCS,CR
-Delivery.00ab,DCS,SR
-Elevator.02ab,DCS,SR
+Item1,A,I
+Item2,B,II
+Item3,A,III
 ```
 
 ---
@@ -117,16 +117,16 @@ Each row = one (StudentID, ItemID, Score) pair.
 
 ```csv
 StudentID,ItemID,Score
-S001,IC174Q03JA,1
-S001,IC183Q16JA,0
-S002,IC174Q03JA,1
+S001,Item1,1
+S001,Item2,0
+S002,Item1,2
 ```
 
 #### 2) Wide Format  
 Each row = one Student; columns represent item scores.
 
 ```csv
-StudentID,IC174Q03JA,IC183Q16JA,ST291Q02JA
+StudentID,Item1,Item2,Item3
 S001,1,0,1
 S002,1,1,0
 ```
