@@ -27,11 +27,13 @@ export function drawScatterPlotPlotly(div, actual, pred){
 
 /**
  * Wright Map（左：person ability 直方图；右：item step 阈值散点）
+ * - x2 轴为类别轴（category），tick 为 ItemID
+ * - 每个 step（cat0/1、cat1/2、…）单独一条 trace，颜色/符号区分
  */
-export function drawWrightMap(divId, thetaVals, stepPoints){
+export function drawWrightMap(divId, thetaVals, stepPoints, itemOrder, maxStep){
   const div = (typeof divId==='string')? document.getElementById(divId): divId;
 
-  // 直方图（水平）
+  // 左侧：person ability 直方图（水平）
   const hist = {
     y: thetaVals,
     type: 'histogram',
@@ -39,28 +41,46 @@ export function drawWrightMap(divId, thetaVals, stepPoints){
     marker: {opacity:0.75},
     orientation: 'h',
     xaxis: 'x1',
-    yaxis: 'y1'
-  };
-
-  // 散点（右侧）
-  const scatter = {
-    x: stepPoints.map(p=>p.xIndex+1),
-    y: stepPoints.map(p=>p.y),
-    mode: 'markers',
-    name: 'Items (β + steps)',
-    xaxis: 'x2',
     yaxis: 'y1',
-    text: stepPoints.map(p=>`${p.item} | cat${p.step-1}/cat${p.step}`),
-    hovertemplate: 'Item: %{text}<br>Logit: %{y:.2f}<extra></extra>'
+    hovertemplate: 'θ: %{y:.2f}<br>Count: %{x}<extra></extra>'
   };
 
-  Plotly.newPlot(div, [hist, scatter], {
-    margin:{t:30,r:10,l:50,b:50},
+  // 右侧：按照 step 分组的散点（x 为 ItemID 分类轴）
+  const traces = [];
+  // step 从 1..maxStep，对应类别边界 cat(k-1)/cat(k)
+  const symbols = ['circle','square','diamond','cross','triangle-up','star','x','triangle-down']; // 自动循环
+  for (let s=1; s<=maxStep; s++){
+    const pts = stepPoints.filter(p => p.step === s);
+    if (!pts.length) continue;
+    traces.push({
+      x: pts.map(p=>p.item),
+      y: pts.map(p=>p.y),
+      mode: 'markers',
+      type: 'scatter',
+      name: `cat${s-1}/${s}`,
+      xaxis: 'x2',
+      yaxis: 'y1',
+      text: pts.map(p=>`${p.item} | cat${s-1}/cat${s}`),
+      marker: { size: 8, symbol: symbols[(s-1)%symbols.length] },
+      hovertemplate: 'Item: %{x}<br>Step: cat'+(s-1)+'/'+s+'<br>Logit: %{y:.2f}<extra></extra>'
+    });
+  }
+
+  Plotly.newPlot(div, [hist, ...traces], {
+    margin:{t:30,r:10,l:50,b:70},
     grid: {rows:1, columns:2, subplots:[['xy','x2y1']]},
-    xaxis:  {title:'Count', domain:[0,0.35]},
-    xaxis2: {title:'Items / Steps (sorted by β)', domain:[0.55,1]},
+    xaxis:  {title:'Count', domain:[0,0.38]},
+    xaxis2: {
+      title:'Items (Predicted)',
+      domain:[0.52,1],
+      type:'category',
+      categoryorder:'array',
+      categoryarray:itemOrder,
+      tickangle:-45
+    },
     yaxis:  {title:'Logits'},
-    legend:{orientation:'h'}
+    legend:{orientation:'h'},
+    hovermode:'closest'
   }, {displaylogo:false, responsive:true});
 }
 
