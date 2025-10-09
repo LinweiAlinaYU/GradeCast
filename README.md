@@ -62,7 +62,6 @@ All computation happens locally using **TensorFlow.js**, **PapaParse**, **Plotly
 | **CSV Parsing** | PapaParse | Client-side CSV handling |
 | **Machine Learning** | TensorFlow.js | ANN regression and evaluation |
 | **Charts** | Plotly.js | Loss curves, scatter plots, Wright Maps |
-| **i18n** | In-memory dictionaries | English / Simplified / Traditional Chinese |
 
 ---
 
@@ -197,7 +196,7 @@ Run **Compute IRT from Observed Scores** to perform a frontend-friendly Rasch-fa
 - **Wright Map**: overlaid histograms of θ (persons) and b (items)
 - **Exportable CSV** with item fit indices
 
-> This is designed for realtime diagnostics. For high-stakes calibration, consider full JML/MML implementations.
+> This is designed for realtime diagnostics. For high-stakes calibration, consider full JML implementations.
 
 ---
 
@@ -238,7 +237,6 @@ Dense(1, linear)
 | **LOOCV doesn’t keep a model** | Intended behavior. Use **Holdout** if you need prediction. |
 | **Predictions look identical** | Ensure selected features vary across items; mark types correctly (categorical vs numeric). |
 | **Wright Map looks degenerate** | Verify training produced non-trivial variance in predictions/scores. |
-| **Language doesn’t change** | Use the top-right language selector (session-scoped). |
 
 ---
 
