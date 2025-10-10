@@ -58,17 +58,17 @@ const scoreStatus = document.getElementById('scoreStatus');
 // ---------- state ----------
 let itemRows=[], itemHeaders=[];
 let scoreRows=[], scoreHeaders=[];
-let selectedFeatures = []; // [{name, type, use, card}]
-let dicts=null;            // one-hot dicts for categorical + __student__
+let selectedFeatures = [];
+let dicts=null;
 let inputDim=0;
 
-let trainedModels=[];      // [{config, model, metrics, dicts, testRows:[], best:boolean}]
+let trainedModels=[]; 
 let bestModelIndex=-1;
 
 let itemLoaded=false, scoreLoaded=false;
-let scoreMaxGlobal=1;      // 训练数据的最大分值（用于预测→IRT 的分档）
-let lastPredictRows=[];    // 预测 (student,item,predInt)
-let lastIRTRows=[];        // IRT 表格缓存
+let scoreMaxGlobal=1; 
+let lastPredictRows=[]; 
+let lastIRTRows=[];
 
 // ---------- helpers ----------
 function show(el){ el.classList.remove('hidden'); }
@@ -121,7 +121,6 @@ function parseCSV(file, onComplete, onError){
       } else {
         const headers = res.meta.fields||[];
         const rows = (res.data||[]).map(row=>{
-          // 清洗：把 "." 或空字符串视为 null
           const r={};
           headers.forEach(h=>{
             const v = row[h];
@@ -150,7 +149,7 @@ function handleCSV(file, type){
         itemHeaders=headers; itemRows=rows; itemLoaded=true;
         $('#itemFileName').textContent=file.name;
         fillSelectOptions(itemIdSelect, headers);
-        if (headers.length) itemIdSelect.value = headers[0]; // 默认第一列
+        if (headers.length) itemIdSelect.value = headers[0];
         show(itemMapDiv);
         buildFeatureCards(headers);
       } else {
@@ -297,7 +296,7 @@ function buildSamples(){
   const studentCol = studentIdSelect.value;
   if (!studentCol){ alert('Choose StudentID column.'); return null; }
 
-  const sampleRows=[]; // {student,item,feat,score}
+  const sampleRows=[];
   if (fmt==='long'){
     const itCol = scoreItemIdSelect.value;
     const scCol = scoreValueSelect.value;
@@ -318,7 +317,7 @@ function buildSamples(){
       itemCols.forEach(col=>{
         const val=r[col];
         const num=Number(val);
-        if (!isFinite(num)) return; // Fillter ".", "", null
+        if (!isFinite(num)) return;
         const iid=col;
         const feat=itemById.get(String(iid)); if(!feat) return;
         sampleRows.push({student:String(sid), item:String(iid), feat, score:num});
@@ -363,7 +362,7 @@ function buildSamples(){
   const X=[], y=[];
   sampleRows.forEach(s=>{ X.push(encodeX(s)); y.push([s.score]); });
 
-  // 记录训练最大分值
+  // Record max-training score
   scoreMaxGlobal = Math.max(...sampleRows.map(s=>s.score));
   if (!isFinite(scoreMaxGlobal) || scoreMaxGlobal<=0) scoreMaxGlobal = 1;
 
@@ -878,7 +877,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
       <div><strong>Variance (Persons)</strong>: ${varPersons.toFixed(2)}</div>
     </div>`;
 
-  // item step：beta + Cum δ（RSM 用公共 δ）
+  // item step：beta + Cum δ（RSM δ）
   const stepPoints=[];
   items.forEach((it)=>{
     const m = stepsByItem[it];
