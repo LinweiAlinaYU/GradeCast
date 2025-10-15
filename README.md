@@ -28,7 +28,6 @@ The University of Hong Kong · [linweiyu@connect.hku.hk](mailto:linweiyu@connect
 - [Model & Validation](#model--validation)
 - [Prediction Workflow](#prediction-workflow)
 - [IRT Calibration](#irt-calibration)
-- [Deploy to GitHub Pages](#deploy-to-github-pages)
 - [Troubleshooting](#troubleshooting)
 - [Security & Privacy](#security--privacy)
 - [Limitations & Future Work](#limitations--future-work)
@@ -216,16 +215,6 @@ Dense(1, linear)
 - Loss: **Mean Squared Error**  
 - Optimizer: **Adam** (configurable LR)  
 - Validation: **Holdout** (keeps model) / **LOOCV** (no persisted model)
-
----
-
-## Deploy to GitHub Pages
-
-1. Push the repository to GitHub.  
-2. **Settings → Pages**.  
-3. Source: **Deploy from a branch** → Branch: `main` → Folder: `/ (root)`.  
-4. Save and open the generated URL.  
-5. The app runs entirely client-side.
 
 ---
 
