@@ -326,18 +326,17 @@ function buildSamples(){
   }
   if (sampleRows.length===0){ alert('No valid samples. Check mappings.'); return null; }
 
-  // build dicts (categorical only + __student__)
-  dicts={};
-  features.forEach(f=>{ if (f.type==='categorical'){ dicts[f.name]=[]; } });
-  dicts['__student__'] = [];
-  sampleRows.forEach(s=>{
-    features.forEach(f=>{
-      if (f.type!=='categorical') return;
-      const v=s.feat[f.name];
-      if (!dicts[f.name].includes(v)) dicts[f.name].push(v);
-    });
-    if (!dicts['__student__'].includes(s.student)) dicts['__student__'].push(s.student);
+// build dicts (categorical only; NO student)
+dicts={};
+features.forEach(f=>{ if (f.type==='categorical'){ dicts[f.name]=[]; } });
+
+sampleRows.forEach(s=>{
+  features.forEach(f=>{
+    if (f.type!=='categorical') return;
+    const v=s.feat[f.name];
+    if (!dicts[f.name].includes(v)) dicts[f.name].push(v);
   });
+});
 
   inputDim = Object.entries(dicts).reduce((acc,[,arr])=>acc+arr.length,0) +
              features.filter(f=>f.type==='numeric').length;
@@ -347,11 +346,11 @@ function buildSamples(){
     const vec = new Array(inputDim).fill(0);
     let offset=0;
     for (const [k,arr] of Object.entries(dicts)){
-      const val=(k==='__student__')? s.student : s.feat[k];
-      const i=arr.indexOf(val);
-      if (i>=0) vec[offset+i]=1;
-      offset+=arr.length;
-    }
+    const val = s.feat[k];
+    const i = arr.indexOf(val);
+    if (i>=0) vec[offset+i]=1;
+    offset += arr.length;
+  }
     features.filter(f=>f.type==='numeric').forEach(f=>{
       const val = Number(s.feat[f.name]);
       vec[offset++] = isFinite(val) ? val : 0;
@@ -366,13 +365,14 @@ function buildSamples(){
   scoreMaxGlobal = Math.max(...sampleRows.map(s=>s.score));
   if (!isFinite(scoreMaxGlobal) || scoreMaxGlobal<=0) scoreMaxGlobal = 1;
 
-  return {X,y,sampleRows,features};
+  const students = [...new Set(sampleRows.map(s=>s.student))];
+  return {X,y,sampleRows,features, students};
 }
 
 // ---------- training ----------
 startBtn.addEventListener('click', async ()=>{
   const built = buildSamples(); if(!built) return;
-  const {X,y,sampleRows} = built;
+  const {X,y,sampleRows, students} = built;
 
   // validations
   const configs=[];
@@ -474,7 +474,15 @@ startBtn.addEventListener('click', async ()=>{
       renderResultCard({method,ratio,metrics,histLoss:[],histVal:[],actual:acts,pred:preds});
     }
 
-    trainedModels.push({config:{method,ratio}, model:(method==='holdout'?model:null), metrics, dicts, testRows:cardTestRows});
+   trainedModels.push({
+    config:{method,ratio},
+    model:(method==='holdout'?model:null),
+    metrics,
+    dicts,     
+    students,   
+    testRows:cardTestRows
+  });
+
     if (metrics.RMSE < best){ best=metrics.RMSE; bestModelIndex=trainedModels.length-1; }
   }
 
@@ -568,19 +576,29 @@ predictBtn.addEventListener('click', ()=>{
     function encode(featObj, studentId){
       const vec=new Array(inputDimLocal).fill(0);
       let offset=0;
+      function encode(featObj){
+      const vec=new Array(inputDimLocal).fill(0);
+      let offset=0;
       for (const [k,arr] of Object.entries(dictsLocal)){
-        const val=(k==='__student__')? studentId : featObj[k];
-        const i=arr.indexOf(val);
+        const val = featObj[k];
+        const i = arr.indexOf(val);
         if (i>=0) vec[offset+i]=1;
-        offset+=arr.length;
+        offset += arr.length;
       }
+      features.filter(f=>f.type==='numeric').forEach(f=>{
+        const num = Number(featObj[f.name]);
+        vec[offset++] = isFinite(num) ? num : 0;
+      });
+      return vec;
+    }
+
       features.filter(f=>f.type==='numeric').forEach(f=>{
         const num = Number(featObj[f.name]); vec[offset++]= isFinite(num)? num : 0;
       });
       return vec;
     }
 
-    const students = dictsLocal['__student__']||[];
+    const students = best.students || [];
     const model=best.model;
     const predicts=[];
     show(predictProgress);
@@ -595,7 +613,7 @@ predictBtn.addEventListener('click', ()=>{
       const iid=r[itemIdCol]; if (iid==null) return;
       const feat={}; features.forEach(f=> feat[f.name]=r[f.name]);
       students.forEach(sid=>{
-        const x=encode(feat, sid);
+        const x=encode(feat);
         const pRaw=model.predict(tf.tensor2d([x])).dataSync()[0];
         const pInt=clampRound(pRaw, scoreMaxGlobal);  
         predicts.push({student:sid, item:String(iid), pred:pInt});
