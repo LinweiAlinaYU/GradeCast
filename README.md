@@ -1,5 +1,5 @@
 # GradeCast — AI-powered Measurement Insight Platform  
-*(Artificial Neural Network Prediction + Rasch Diagnostics)*
+*(Artificial Neural Network Prediction + IRT Rasch Diagnostics)*
 
 **GradeCast** enables users to upload construct-based person–item response datasets, perform end-to-end **artificial neural network modeling** training-validation-prediction directly in the browser, and explore **Rasch-based IRT analyses** in real time.  
 
