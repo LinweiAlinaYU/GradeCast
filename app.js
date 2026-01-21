@@ -551,13 +551,12 @@ predictFileInput.addEventListener('change', e=>{
   setStatus(predictItemStatus,true,'Ready');
 });
 
-predictBtn.addEventListener('click', ()=>{
+predictBtn.addEventListener('click', async ()=>{
   const best = trainedModels[bestModelIndex];
   if (!best || !best.model){ alert('Train (holdout) first.'); return; }
   const file=predictFileInput.files[0]; if(!file){ alert('Upload predict CSV'); return; }
 
-  parseCSV(file,(headers,rows)=>{
-    // status
+  parseCSV(file, async (headers, rows)=>{
     setStatus(predictItemStatus,true,'Loaded');
 
     const itemIdCol = itemIdSelect.value;
@@ -565,6 +564,7 @@ predictBtn.addEventListener('click', ()=>{
     const dictsLocal = best.dicts;
     const inputDimLocal = inputDim;
 
+    // --- encode ---
     function encode(featObj, studentId){
       const vec=new Array(inputDimLocal).fill(0);
       let offset=0;
@@ -575,36 +575,80 @@ predictBtn.addEventListener('click', ()=>{
         offset+=arr.length;
       }
       features.filter(f=>f.type==='numeric').forEach(f=>{
-        const num = Number(featObj[f.name]); vec[offset++]= isFinite(num)? num : 0;
+        const num = Number(featObj[f.name]);
+        vec[offset++] = isFinite(num) ? num : 0;
       });
       return vec;
     }
 
     const students = dictsLocal['__student__']||[];
-    const model=best.model;
-    const predicts=[];
+    const model = best.model;
+
     show(predictProgress);
     predictResultsDiv.innerHTML='';
     predictProgressBar.style.width='0%';
     predictProgressText.textContent='Predicting...';
 
+    const predicts=[];
     const total = rows.length * students.length;
     let done = 0;
 
-    rows.forEach((r)=>{
-      const iid=r[itemIdCol]; if (iid==null) return;
-      const feat={}; features.forEach(f=> feat[f.name]=r[f.name]);
-      students.forEach(sid=>{
-        const x=encode(feat, sid);
-        const pRaw=model.predict(tf.tensor2d([x])).dataSync()[0];
-        const pInt=clampRound(pRaw, scoreMaxGlobal);  
-        predicts.push({student:sid, item:String(iid), pred:pInt});
-        done++;
-        if (done%100===0 || done===total){
-          predictProgressBar.style.width = Math.round(done/total*100)+'%';
+    const BATCH = 2048;
+
+    for (let rIdx=0; rIdx<rows.length; rIdx++){
+      const r = rows[rIdx];
+      const iid = r[itemIdCol];
+      if (iid==null) continue;
+
+      const feat={};
+      features.forEach(f=> feat[f.name]=r[f.name]);
+
+      const Xall = students.map(sid => encode(feat, sid));
+
+      for (let start=0; start<Xall.length; start+=BATCH){
+        const end = Math.min(start+BATCH, Xall.length);
+        const xBatch = Xall.slice(start,end);
+
+        const predArray = await tf.tidy(async ()=>{
+          const xT = tf.tensor2d(xBatch);
+          const yT = model.predict(xT);
+          const yArr = await yT.data();
+          return Array.from(yArr);
+        });
+
+        for (let j=0; j<predArray.length; j++){
+          const sid = students[start+j];
+          const pInt = clampRound(predArray[j], scoreMaxGlobal);
+          predicts.push({student:sid, item:String(iid), pred:pInt});
         }
-      });
+
+        done += (end-start);
+        predictProgressBar.style.width = Math.round(done/total*100)+'%';
+
+        await tf.nextFrame();
+      }
+    }
+
+    lastPredictRows = predicts;
+    hide(predictProgress);
+
+    const info=document.createElement('div');
+    info.className='text-sm text-gray-300 mt-2';
+    info.textContent=`Predicted pairs: ${predicts.length} (showing up to 100 below)`;
+    predictResultsDiv.appendChild(info);
+
+    const tbl=document.createElement('table');
+    tbl.className='mt-2 w-full text-sm';
+    tbl.innerHTML='<thead><tr><th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred (int)</th></tr></thead><tbody></tbody>';
+    const tb=tbl.querySelector('tbody');
+    predicts.slice(0,100).forEach(r=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${r.pred}</td>`;
+      tb.appendChild(tr);
     });
+    predictResultsDiv.appendChild(tbl);
+  });
+});
 
     lastPredictRows = predicts; 
     hide(predictProgress);
