@@ -650,26 +650,6 @@ predictBtn.addEventListener('click', async ()=>{
   });
 });
 
-    lastPredictRows = predicts; 
-    hide(predictProgress);
-
-    // Table
-    const info=document.createElement('div'); info.className='text-sm text-gray-300 mt-2';
-    info.textContent=`Predicted pairs: ${predicts.length} (showing up to 100 below)`;
-    predictResultsDiv.appendChild(info);
-
-    const tbl=document.createElement('table'); tbl.className='mt-2 w-full text-sm';
-    tbl.innerHTML='<thead><tr><th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred (int)</th></tr></thead><tbody></tbody>';
-    const tb=tbl.querySelector('tbody');
-    predicts.slice(0,100).forEach(r=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${r.pred}</td>`;
-      tb.appendChild(tr);
-    });
-    predictResultsDiv.appendChild(tbl);
-  });
-});
-
 exportPredictBtn.addEventListener('click', ()=>{
   if (!lastPredictRows.length){ alert('No predictions yet.'); return; }
   const csv = Papa.unparse(lastPredictRows);
