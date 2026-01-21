@@ -33,6 +33,9 @@ export function drawScatterPlotPlotly(div, actual, pred){
 export function drawWrightMap(divId, thetaVals, stepPoints, itemOrder, maxStep){
   const div = (typeof divId==='string')? document.getElementById(divId): divId;
 
+  const maxStepFromData = stepPoints.reduce((m,p)=>Math.max(m, Number(p.step)||0), 0);
+  maxStep = Math.min(maxStep, maxStepFromData);
+
   // 左侧：person ability 直方图（水平）
   const hist = {
     y: thetaVals,
