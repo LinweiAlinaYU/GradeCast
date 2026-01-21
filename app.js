@@ -912,7 +912,7 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
     let cum=0;
     for(let k=0;k<m;k++){
       cum += deltas[k]||0;
-      stepPoints.push({item:it, step:k+1, y: beta[it]+cum}); 
+      stepPoints.push({item:it, step:k+1, y: beta[it]-cum}); 
     }
   });
   drawWrightMap('wrightChart', thetaVals, stepPoints, items, maxSteps);
