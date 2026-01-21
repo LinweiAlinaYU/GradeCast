@@ -747,10 +747,16 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
   const items   =[...new Set(pairs.map(p=>p.item))];
 
   // maxScoreGlobal
-  const stepsByItem={};
-  items.forEach(it=> stepsByItem[it]=Math.max(1, Math.round(scoreMaxGlobal)) );
-  const maxSteps=Math.max(...Object.values(stepsByItem));
-
+  const stepsByItem = {};
+  items.forEach(it => {
+  const maxObs = Math.max(
+      0,
+      ...pairs.filter(p => p.item === it).map(p => Number(p.score)).filter(v => Number.isFinite(v))
+    );
+    stepsByItem[it] = Math.max(1, Math.round(maxObs)); // 0..3 => steps=3
+  });
+  const maxSteps = Math.max(...Object.values(stepsByItem));
+    
   // 参数初值
   const theta=Object.fromEntries(students.map(s=>[s,0]));
   const beta =Object.fromEntries(items.map(it=>[it,0]));
