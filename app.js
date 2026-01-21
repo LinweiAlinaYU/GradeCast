@@ -551,7 +551,15 @@ predictFileInput.addEventListener('change', e=>{
   setStatus(predictItemStatus,true,'Ready');
 });
 
-predictBtn.addEventListener('click', async ()=>{
+predictBtn.addEventListener('click', ()=>{
+  runPrediction().catch(err=>{
+    console.error(err);
+    alert('Prediction failed: ' + (err?.message || err));
+    hide(predictProgress);
+  });
+});
+
+async function runPrediction(){
   const best = trainedModels[bestModelIndex];
   if (!best || !best.model){ alert('Train (holdout) first.'); return; }
   const file=predictFileInput.files[0]; if(!file){ alert('Upload predict CSV'); return; }
@@ -563,8 +571,9 @@ predictBtn.addEventListener('click', async ()=>{
     const features = selectedFeatures.filter(f=>f.use);
     const dictsLocal = best.dicts;
     const inputDimLocal = inputDim;
+    const students = dictsLocal['__student__']||[];
+    const model = best.model;
 
-    // --- encode ---
     function encode(featObj, studentId){
       const vec=new Array(inputDimLocal).fill(0);
       let offset=0;
@@ -581,8 +590,10 @@ predictBtn.addEventListener('click', async ()=>{
       return vec;
     }
 
-    const students = dictsLocal['__student__']||[];
-    const model = best.model;
+    // 先过滤有效 rows，避免 total 算错
+    const validRows = rows.filter(r => r[itemIdCol]!=null);
+    const total = validRows.length * students.length;
+    let done = 0;
 
     show(predictProgress);
     predictResultsDiv.innerHTML='';
@@ -590,15 +601,11 @@ predictBtn.addEventListener('click', async ()=>{
     predictProgressText.textContent='Predicting...';
 
     const predicts=[];
-    const total = rows.length * students.length;
-    let done = 0;
-
     const BATCH = 2048;
 
-    for (let rIdx=0; rIdx<rows.length; rIdx++){
-      const r = rows[rIdx];
+    for (let rIdx=0; rIdx<validRows.length; rIdx++){
+      const r = validRows[rIdx];
       const iid = r[itemIdCol];
-      if (iid==null) continue;
 
       const feat={};
       features.forEach(f=> feat[f.name]=r[f.name]);
@@ -609,23 +616,22 @@ predictBtn.addEventListener('click', async ()=>{
         const end = Math.min(start+BATCH, Xall.length);
         const xBatch = Xall.slice(start,end);
 
-        const predArray = await tf.tidy(async ()=>{
-          const xT = tf.tensor2d(xBatch);
-          const yT = model.predict(xT);
-          const yArr = await yT.data();
-          return Array.from(yArr);
-        });
+        // ✅ 不用 tf.tidy(async)，改成手动 dispose
+        const xT = tf.tensor2d(xBatch);
+        const yT = model.predict(xT);
+        const yArr = await yT.data();   // async
+        xT.dispose();
+        yT.dispose();
 
-        for (let j=0; j<predArray.length; j++){
+        for (let j=0; j<yArr.length; j++){
           const sid = students[start+j];
-          const pInt = clampRound(predArray[j], scoreMaxGlobal);
+          const pInt = clampRound(yArr[j], scoreMaxGlobal);
           predicts.push({student:sid, item:String(iid), pred:pInt});
         }
 
         done += (end-start);
         predictProgressBar.style.width = Math.round(done/total*100)+'%';
-
-        await tf.nextFrame();
+        await tf.nextFrame(); // 让 UI 不假死
       }
     }
 
@@ -641,14 +647,15 @@ predictBtn.addEventListener('click', async ()=>{
     tbl.className='mt-2 w-full text-sm';
     tbl.innerHTML='<thead><tr><th class="text-left">Student</th><th class="text-left">Item</th><th class="text-left">Pred (int)</th></tr></thead><tbody></tbody>';
     const tb=tbl.querySelector('tbody');
-    predicts.slice(0,100).forEach(r=>{
+    predicts.slice(0,100).forEach(rr=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${r.student}</td><td>${r.item}</td><td>${r.pred}</td>`;
+      tr.innerHTML=`<td>${rr.student}</td><td>${rr.item}</td><td>${rr.pred}</td>`;
       tb.appendChild(tr);
     });
     predictResultsDiv.appendChild(tbl);
-  });
-});
+  },
+  (errMsg)=> setStatus(predictItemStatus,false,errMsg));
+}
 
 exportPredictBtn.addEventListener('click', ()=>{
   if (!lastPredictRows.length){ alert('No predictions yet.'); return; }
