@@ -326,7 +326,7 @@ function buildSamples(){
   }
   if (sampleRows.length===0){ alert('No valid samples. Check mappings.'); return null; }
 
-  // build dicts (categorical only + __student__)
+  // build dicts (categorical only + student)
   dicts={};
   features.forEach(f=>{ if (f.type==='categorical'){ dicts[f.name]=[]; } });
   dicts['__student__'] = [];
@@ -541,7 +541,6 @@ exportTestBtn.addEventListener('click', ()=>{
   downloadBlob(blob, 'test_predictions.csv');
 });
 
-// 预测分数离散化（四舍五入截断到 0..maxScore）
 const clampRound = (v, maxScore) => Math.max(0, Math.min(maxScore, Math.round(Number(v)||0)));
 
 // ---------- Predict ----------
@@ -616,10 +615,9 @@ async function runPrediction(){
         const end = Math.min(start+BATCH, Xall.length);
         const xBatch = Xall.slice(start,end);
 
-        // ✅ 不用 tf.tidy(async)，改成手动 dispose
         const xT = tf.tensor2d(xBatch);
         const yT = model.predict(xT);
-        const yArr = await yT.data();   // async
+        const yArr = await yT.data();
         xT.dispose();
         yT.dispose();
 
@@ -631,7 +629,7 @@ async function runPrediction(){
 
         done += (end-start);
         predictProgressBar.style.width = Math.round(done/total*100)+'%';
-        await tf.nextFrame(); // 让 UI 不假死
+        await tf.nextFrame();
       }
     }
 
@@ -712,7 +710,6 @@ computeIRTBtn.addEventListener('click', () => {
 
 // ---------- IRT (PCM/RSM) ----------
 function categoryProbs(theta, beta, deltaArr, m){
-  // m = largrest；deltaArr 长度≥m
   const s=new Array(m+1).fill(0);
   for(let k=0;k<=m;k++){
     let logit=k*(theta-beta);
@@ -735,7 +732,7 @@ function phiCdf(z){
 }
 
 function runIRT_JML_fromPairs_poly(pairs, {source}={}){
-  const modelType=document.getElementById('irtModelSelect').value; // 'pcm' | 'rsm'
+  const modelType=document.getElementById('irtModelSelect').value;
   if (!pairs?.length){ alert('No pairs for IRT.'); return; }
 
   // Progress
@@ -753,11 +750,10 @@ function runIRT_JML_fromPairs_poly(pairs, {source}={}){
       0,
       ...pairs.filter(p => p.item === it).map(p => Number(p.score)).filter(v => Number.isFinite(v))
     );
-    stepsByItem[it] = Math.max(1, Math.round(maxObs)); // 0..3 => steps=3
+    stepsByItem[it] = Math.max(1, Math.round(maxObs)); 
   });
   const maxSteps = Math.max(...Object.values(stepsByItem));
     
-  // 参数初值
   const theta=Object.fromEntries(students.map(s=>[s,0]));
   const beta =Object.fromEntries(items.map(it=>[it,0]));
   let delta_rsm=Array.from({length:maxSteps},()=>0);
